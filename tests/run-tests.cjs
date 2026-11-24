@@ -680,16 +680,19 @@ async function shot(page, name) {
     await p.click('#practice-record');
     await p.locator('#practice-result').waitFor({ state: 'visible', timeout: 15000 });
 
-    const request = log.find((body) => body.contents[0].parts.some((part) => part.inlineData?.mimeType === 'audio/wav'));
-    assert.ok(request, 'an audio/wav request must be sent');
-    const parts = request.contents[0].parts;
-    const audio = parts.find((part) => part.inlineData).inlineData;
+    const audioRequests = log.filter((body) => body.contents[0].parts.some((part) => part.inlineData?.mimeType === 'audio/wav'));
+    assert.equal(audioRequests.length, 2, 'step 1 (transcribe) + step 2 (feedback)');
+    const [transcribe, feedback] = audioRequests;
+    const allText = (body) => JSON.stringify(body.contents) + body.systemInstruction.parts[0].text;
+    assert.doesNotMatch(allText(transcribe), /caneca/, 'step 1 must NOT know the target (avoids bias)');
+    const audio = transcribe.contents[0].parts.find((part) => part.inlineData).inlineData;
     assert.ok(audio.data.startsWith('UklGR'), 'must be a WAV (RIFF) file');
     const bytes = Buffer.from(audio.data, 'base64');
     assert.equal(bytes.readUInt32LE(24), 16000, 'sample rate 16 kHz');
     assert.equal(bytes.readUInt16LE(22), 1, 'mono');
-    assert.ok(parts.some((part) => part.text === 'TARGET: "a caneca"'));
-    assert.match(request.systemInstruction.parts[0].text, /gaúcho/);
+    assert.ok(feedback.contents[0].parts.some((part) => part.text === 'TARGET: "a caneca"\nHEARD: "a caneca"'));
+    assert.match(feedback.systemInstruction.parts[0].text, /gaúcho/);
+    assert.match(feedback.systemInstruction.parts[0].text, /NEVER give only generic advice/);
 
     assert.equal(await p.getAttribute('#practice-verdict', 'data-kind'), 'good');
     assert.equal(await p.textContent('#practice-heard'), 'a caneca');
@@ -712,6 +715,32 @@ async function shot(page, name) {
     assert.equal(await p.locator('#practice-words .word--miss').count(), 1);
     assert.equal(await p.textContent('#practice-words .word--miss'), 'caneca');
     assert.match(await p.textContent('#practice-verdict'), /چند صدا/);
+    await ctx.close();
+  });
+
+  await test('wrong word + AI wrongly says "good" -> app still marks it, names the word', async () => {
+    // Exactly Rabeah's case: a wrong word, and a too-kind answer from the AI.
+    const { ctx, p } = await resultPage({ ...PRONUNCIATION_OK, heard_pt: 'a canela', verdict: 'good', tips: [] });
+    await p.click('#practice-record');
+    await p.waitForTimeout(1200);
+    await p.click('#practice-record');
+    await p.locator('#practice-result').waitFor({ state: 'visible', timeout: 15000 });
+    assert.equal(await p.getAttribute('#practice-verdict', 'data-kind'), 'close');
+    assert.match(await p.textContent('#practice-tips'), /caneca/);
+    await ctx.close();
+  });
+
+  await test('verdict rule: most words missing -> "retry"', async () => {
+    const { ctx, p } = await mirrorPage();
+    const verdicts = await p.evaluate(async () => {
+      const { combineVerdict, compareWords } = await import('./js/practice.js');
+      return [
+        combineVerdict('good', compareWords('a caneca azul', 'a caneca azul')),
+        combineVerdict('good', compareWords('a caneca azul', 'a caneca')),
+        combineVerdict('good', compareWords('a caneca azul', 'o')),
+      ];
+    });
+    assert.deepEqual(verdicts, ['good', 'close', 'retry']);
     await ctx.close();
   });
 

@@ -11,7 +11,7 @@ import { createAi } from './ai.js';
 import { loadVoices, portugueseVoiceName, isSpeechSupported, speak } from './speech.js';
 import { initMirror } from './mirror.js';
 
-export const APP_VERSION = '0.4.0'; // stage 4: listen + pronunciation practice
+export const APP_VERSION = '0.4.1'; // stage 4 + honest two-step pronunciation check
 
 const SCREENS = ['mirror', 'review', 'progress', 'settings'];
 let settings = loadSettings();

@@ -322,28 +322,64 @@ export async function runWithFallback({ apiKey, ensureModel, task, onStatus }) {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 4: pronunciation check
+// Stage 4: pronunciation check, in TWO steps
 // ---------------------------------------------------------------------------
+// Why two steps? If the AI knows what the student SHOULD say, it tends to
+// "hear" exactly that, even when the student said something else (the same
+// bias is well known in speech-to-text systems). So:
+//   step 1: transcribe the audio WITHOUT telling the AI the target;
+//   step 2: compare that transcript with the target and give feedback.
 
-function pronunciationInstruction() {
-  return [
-    'You are a kind Brazilian Portuguese pronunciation coach for a Persian-speaking adult beginner who lives in Porto Alegre.',
-    'You receive a TARGET text and a short audio recording of the student trying to say it.',
-    'Steps:',
-    '1. "heard_pt": transcribe EXACTLY what the student said, in Portuguese spelling. Do NOT correct it: if they said a wrong or unclear word, write what you actually heard.',
-    '2. "verdict": "good" = a native speaker would understand easily (an accent is fine); "close" = understandable, but one or two sounds are clearly off; "retry" = hard to understand, or words are missing.',
-    '3. "feedback_fa": one or two short, encouraging sentences in Persian.',
-    '4. "tips": up to 3 words that need work. For each, explain in Persian HOW to make the Brazilian sound, comparing with Persian sounds when helpful (for example: nasal "ão"; final "e" often sounds like "i"; "ti"/"di" like Persian "چی"/"جی"; initial "r" and "rr" like a soft Persian "ه"/"خ"; "lh" and "nh").',
-    'Accept all standard Brazilian pronunciations, including the gaúcho accent of Porto Alegre. Never criticize the student\'s accent itself, only sounds that change meaning or clarity.',
-    'If the audio has no speech, or speech in another language, set "no_speech" to true and leave the text fields empty.',
-  ].join('\n');
-}
-
-const PRONUNCIATION_SCHEMA = {
+const TRANSCRIBE_SCHEMA = {
   type: 'OBJECT',
   properties: {
     no_speech: { type: 'BOOLEAN' },
     heard_pt: { type: 'STRING' },
+  },
+  required: ['no_speech', 'heard_pt'],
+};
+
+function transcribeInstruction() {
+  return [
+    'You are a strict speech-to-text system for Brazilian Portuguese learners.',
+    'Transcribe EXACTLY what is said in the audio, in Portuguese spelling. You do NOT know what the speaker intended to say.',
+    'Do not correct anything and do not guess. If a word is mispronounced, spell it the way it actually sounded (for example, if "pão" sounded like "pau", write "pau").',
+    'Write "[?]" for a word you cannot understand.',
+    'If there is no speech, or the speech is not Portuguese, set "no_speech" to true and "heard_pt" to "".',
+  ].join('\n');
+}
+
+export async function transcribeSpeech(apiKey, model, audio) {
+  const parsed = await generateJson(apiKey, model, {
+    system: transcribeInstruction(),
+    schema: TRANSCRIBE_SCHEMA,
+    temperature: 0,
+    maxOutputTokens: 512,
+    parts: [
+      { inlineData: { mimeType: audio.mimeType, data: audio.base64 } },
+      { text: 'Transcribe this audio. Answer only with the JSON.' },
+    ],
+  });
+  return { noSpeech: parsed?.no_speech === true, heardPt: cleanText(parsed?.heard_pt, 400) };
+}
+
+function feedbackInstruction() {
+  return [
+    'You are a kind but HONEST Brazilian Portuguese pronunciation coach for a Persian-speaking adult beginner who lives in Porto Alegre.',
+    'You get: the TARGET text, the HEARD transcript (made by a separate system that did not know the target), and the audio.',
+    'Treat HEARD as strong evidence: if a word in HEARD differs from TARGET, that word was not pronounced clearly.',
+    '"verdict": "good" ONLY if HEARD matches TARGET and the sounds are clear (an accent is fine); "close" if one word or sound is off; "retry" if several words are wrong or missing.',
+    '"feedback_fa": one or two sentences in Persian. Say clearly WHICH word was the problem and WHAT you heard instead. Be warm, but never praise a wrong answer as good.',
+    '"tips": for each problem word (max 3), explain in Persian exactly HOW to make the Brazilian sound, comparing with Persian sounds when helpful (nasal "ão"; final "e" often like "i"; "ti"/"di" like Persian "چی"/"جی"; initial "r"/"rr" like a soft Persian "ه"/"خ"; "lh"; "nh"; open vs closed "e"/"o").',
+    'NEVER give only generic advice such as "speak more slowly" or "try again". Every tip must name a specific word and a specific sound.',
+    'If everything is correct, "tips" is empty.',
+    'Accept all standard Brazilian pronunciations, including the gaúcho accent of Porto Alegre.',
+  ].join('\n');
+}
+
+const FEEDBACK_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
     verdict: { type: 'STRING', enum: ['good', 'close', 'retry'] },
     feedback_fa: { type: 'STRING' },
     tips: {
@@ -355,15 +391,12 @@ const PRONUNCIATION_SCHEMA = {
       },
     },
   },
-  required: ['no_speech', 'heard_pt', 'verdict', 'feedback_fa', 'tips'],
+  required: ['verdict', 'feedback_fa', 'tips'],
 };
 
-export function cleanPronunciation(raw) {
-  const verdict = ['good', 'close', 'retry'].includes(raw?.verdict) ? raw.verdict : 'retry';
+export function cleanFeedback(raw) {
   return {
-    noSpeech: raw?.no_speech === true,
-    heardPt: cleanText(raw?.heard_pt, 400),
-    verdict,
+    verdict: ['good', 'close', 'retry'].includes(raw?.verdict) ? raw.verdict : 'retry',
     feedbackFa: cleanText(raw?.feedback_fa, 500),
     tips: (Array.isArray(raw?.tips) ? raw.tips : [])
       .map((tip) => ({ word: cleanText(tip?.word, 60), tipFa: cleanText(tip?.tip_fa, 300) }))
@@ -372,18 +405,17 @@ export function cleanPronunciation(raw) {
   };
 }
 
-// audio = { base64, mimeType } (we send WAV, a format every Gemini model accepts)
-export async function checkPronunciation(apiKey, model, target, audio) {
+export async function pronunciationFeedback(apiKey, model, target, heard, audio) {
   const parsed = await generateJson(apiKey, model, {
-    system: pronunciationInstruction(),
-    schema: PRONUNCIATION_SCHEMA,
+    system: feedbackInstruction(),
+    schema: FEEDBACK_SCHEMA,
     temperature: 0.2,
     maxOutputTokens: 1024,
     parts: [
-      { text: `TARGET: "${target}"` },
+      { text: `TARGET: "${target}"\nHEARD: "${heard}"` },
       { inlineData: { mimeType: audio.mimeType, data: audio.base64 } },
-      { text: 'Check the recording against the TARGET. Answer only with the JSON.' },
+      { text: 'Give pronunciation feedback. Answer only with the JSON.' },
     ],
   });
-  return cleanPronunciation(parsed);
+  return cleanFeedback(parsed);
 }

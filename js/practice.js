@@ -10,7 +10,7 @@
 import { t } from './i18n.js';
 import { speak, stopSpeaking } from './speech.js';
 import { isRecordingSupported, startRecording, toWav, MAX_SECONDS } from './recorder.js';
-import { checkPronunciation } from './gemini.js';
+import { transcribeSpeech, pronunciationFeedback } from './gemini.js';
 import { errorMessageKey } from './ai.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -36,6 +36,16 @@ export function compareWords(target, heard) {
     if (index >= 0) pool.splice(index, 1); // each heard word counts once
     return { word, ok: index >= 0 };
   });
+}
+
+// The phone's own check is the final word on the verdict: if target words were
+// not heard, the result can never be "good", whatever the AI said.
+export function combineVerdict(aiVerdict, comparison) {
+  const counted = comparison.filter((item) => normalizeWords(item.word).length > 0);
+  const missing = counted.filter((item) => !item.ok).length;
+  if (missing === 0) return aiVerdict;
+  if (missing * 2 > counted.length) return 'retry';
+  return aiVerdict === 'retry' ? 'retry' : 'close';
 }
 
 // Splits a description into sentences.
@@ -86,17 +96,19 @@ export function initPractice({ ai }) {
   }
 
   function showFeedback(result, target) {
+    const comparison = compareWords(target, result.heardPt);
+    const verdictKind = combineVerdict(result.verdict, comparison);
     const words = $('#practice-words');
     words.replaceChildren();
-    for (const { word, ok } of compareWords(target, result.heardPt)) {
+    for (const { word, ok } of comparison) {
       const span = document.createElement('span');
       span.className = ok ? 'word word--ok' : 'word word--miss';
       span.textContent = word;
       words.append(span, ' ');
     }
     const verdict = $('#practice-verdict');
-    verdict.dataset.kind = result.verdict;
-    verdict.textContent = t(`practice.verdict.${result.verdict}`);
+    verdict.dataset.kind = verdictKind;
+    verdict.textContent = t(`practice.verdict.${verdictKind}`);
     $('#practice-heard').textContent = result.heardPt || '—';
     $('#practice-feedback').textContent = result.feedbackFa;
     const tips = $('#practice-tips');
@@ -110,7 +122,14 @@ export function initPractice({ ai }) {
       item.append(word, ': ', tip.tipFa);
       tips.append(item);
     }
-    tips.hidden = result.tips.length === 0;
+    // If the AI gave no tip but words were missed, at least name those words.
+    const missed = comparison.filter((item) => !item.ok).map((item) => item.word);
+    if (result.tips.length === 0 && missed.length) {
+      const item = document.createElement('li');
+      item.textContent = t('practice.missedWords', { words: missed.join(' ') });
+      tips.append(item);
+    }
+    tips.hidden = tips.children.length === 0;
     $('#practice-audio').src = playbackUrl;
     $('#practice-result').hidden = false;
     setStatus('');
@@ -140,12 +159,16 @@ export function initPractice({ ai }) {
         return;
       }
       playbackUrl = URL.createObjectURL(blob);
-      const result = await ai.run(
-        (apiKey, model) => checkPronunciation(apiKey, model, target, audio),
-        (status) => setStatus(t(status === 'busy' ? 'mirror.busyRetrying' : 'mirror.tryingOtherModel')),
-      );
-      if (result.noSpeech) setStatus(t('practice.noSpeech'), 'error');
-      else showFeedback(result, target);
+      const onStatus = (status) => setStatus(t(status === 'busy' ? 'mirror.busyRetrying' : 'mirror.tryingOtherModel'));
+      // Step 1: what did you really say? (the AI does not see the target here)
+      const heard = await ai.run((apiKey, model) => transcribeSpeech(apiKey, model, audio), onStatus);
+      if (heard.noSpeech || !heard.heardPt) {
+        setStatus(t('practice.noSpeech'), 'error');
+        return;
+      }
+      // Step 2: compare with the target and explain.
+      const feedback = await ai.run((apiKey, model) => pronunciationFeedback(apiKey, model, target, heard.heardPt, audio), onStatus);
+      showFeedback({ ...feedback, heardPt: heard.heardPt }, target);
     } catch (error) {
       setStatus(t(errorMessageKey(error), { detail: error?.message || '' }), 'error');
     } finally {

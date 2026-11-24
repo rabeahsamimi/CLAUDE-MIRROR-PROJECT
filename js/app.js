@@ -7,11 +7,13 @@
 import { applyLanguage, t } from './i18n.js';
 import { loadSettings, saveSettings, isPlausibleKey } from './settings.js';
 import { checkKey, GeminiError } from './gemini.js';
+import { initMirror } from './mirror.js';
 
-export const APP_VERSION = '0.2.1'; // stage 2 + fix: accept new Google key formats
+export const APP_VERSION = '0.3.0'; // stage 3: camera + AI description
 
 const SCREENS = ['mirror', 'review', 'progress', 'settings'];
 let settings = loadSettings();
+let mirror = null; // the Mirror screen controller (js/mirror.js)
 
 // A shortcut: $('#id') finds one element on the page.
 const $ = (selector) => document.querySelector(selector);
@@ -46,7 +48,7 @@ function showScreen(name) {
 }
 
 function updateMirrorScreen() {
-  $('#mirror-need-key').hidden = Boolean(settings.apiKey);
+  mirror?.update();
 }
 
 // ---------- Status messages ----------
@@ -181,6 +183,7 @@ function start() {
   fillSettingsForm();
   updateToggleLabel();
   wireSettings();
+  mirror = initMirror({ getSettings: () => settings, save });
   window.addEventListener('hashchange', () => showScreen(currentScreen()));
   showScreen(currentScreen());
   document.body.classList.add('is-ready');

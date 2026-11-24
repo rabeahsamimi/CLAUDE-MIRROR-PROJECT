@@ -57,13 +57,68 @@
         <a class="button button--primary" href="#settings" data-i18n="mirror.goSettings"></a>
       </div>
 
-      <div class="card mirror-card">
+      <!-- Step 1: take or choose a photo -->
+      <div class="card mirror-card" id="mirror-start">
         <div class="mirror-frame" aria-hidden="true">
           <svg viewBox="0 0 64 64" class="mirror-frame__icon"><use href="#icon-camera"/></svg>
         </div>
-        <button type="button" class="button button--primary button--large" id="capture-button" disabled data-i18n="mirror.capture"></button>
-        <p class="hint" data-i18n="mirror.soon"></p>
+        <!-- A <label> wrapping a hidden file input = a big button that opens the iPhone camera.
+             capture="environment" opens the back camera directly. -->
+        <label class="button button--primary button--large file-button" id="capture-label">
+          <input type="file" accept="image/*" capture="environment" id="camera-input" class="visually-hidden">
+          <span data-i18n="mirror.capture"></span>
+        </label>
+        <!-- Without "capture", iPhone offers the photo library too. -->
+        <label class="button file-button" id="library-label">
+          <input type="file" accept="image/*" id="library-input" class="visually-hidden">
+          <span data-i18n="mirror.library"></span>
+        </label>
+        <p class="hint" data-i18n="mirror.hint"></p>
+        <p class="hint hint--small" data-i18n="mirror.privacyShort"></p>
       </div>
+
+      <!-- Step 2: waiting for the AI -->
+      <div class="card mirror-card" id="mirror-loading" hidden>
+        <img class="mirror-photo" id="loading-photo" alt="">
+        <div class="loader" role="status" aria-live="polite">
+          <span class="loader__dot" aria-hidden="true"></span>
+          <span data-i18n="mirror.loading"></span>
+        </div>
+      </div>
+
+      <!-- Step 3a: something went wrong -->
+      <div class="card card--error" id="mirror-error" hidden>
+        <p id="mirror-error-text" role="alert"></p>
+        <div class="button-row">
+          <button type="button" class="button button--primary" id="mirror-retry" data-i18n="mirror.retry"></button>
+          <button type="button" class="button" id="mirror-error-new" data-i18n="mirror.newPhoto"></button>
+          <a class="button" href="#settings" id="mirror-error-settings" hidden data-i18n="mirror.goSettings"></a>
+        </div>
+      </div>
+
+      <!-- Step 3b: the result -->
+      <article class="card result" id="mirror-result" hidden aria-labelledby="result-object">
+        <img class="mirror-photo" id="result-photo" alt="">
+        <p class="result__level" id="result-level"></p>
+        <h3 class="result__object" id="result-object" lang="pt-BR" dir="ltr"></h3>
+        <p class="result__object-fa" id="result-object-fa" lang="fa" dir="rtl"></p>
+
+        <p class="result__description" id="result-description" lang="pt-BR" dir="ltr"></p>
+        <details class="result__translation">
+          <summary data-i18n="mirror.translation"></summary>
+          <p id="result-description-fa" lang="fa" dir="rtl"></p>
+        </details>
+
+        <h4 class="result__subtitle" data-i18n="mirror.vocab"></h4>
+        <ul class="vocab" id="result-vocab"></ul>
+
+        <div class="result__note" id="result-note-box">
+          <strong data-i18n="mirror.note"></strong>
+          <p id="result-note" lang="fa" dir="rtl"></p>
+        </div>
+
+        <button type="button" class="button button--primary button--large" id="mirror-new" data-i18n="mirror.newPhoto"></button>
+      </article>
     </section>
 
     <!-- ========== Screen: Review ========== -->

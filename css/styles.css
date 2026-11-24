@@ -316,6 +316,126 @@ a { color: var(--primary); }
   color: var(--primary);
 }
 
+/* Hidden visually but still usable (the file inputs live inside their labels). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.file-button { position: relative; }
+.file-button:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.file-button.is-disabled { opacity: 0.5; pointer-events: none; }
+.hint--small { font-size: 0.82rem; margin-top: 0; }
+
+.mirror-photo {
+  display: block;
+  width: 100%;
+  max-height: 46dvh;
+  object-fit: cover;
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+}
+
+/* "Looking…" with a pulsing dot */
+.loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.loader__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(0.7); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+
+.card--error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.card--error p { margin-top: 0; }
+
+/* ---------- Result ---------- */
+.result { display: grid; gap: 4px; }
+/* In the result, the photo is a small reminder; the words are the star. */
+.result .mirror-photo { max-height: 26dvh; }
+.result__level {
+  justify-self: center;
+  margin: 12px 0 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.result__object {
+  margin: 4px 0 0;
+  font-size: 1.8rem;
+  line-height: 1.25;
+  text-align: center;
+}
+.result__object-fa { margin: 0; color: var(--muted); text-align: center; }
+.result__description {
+  margin: 12px 0 4px;
+  font-size: 1.15rem;
+  line-height: 1.65;
+  text-align: left;
+}
+.result__translation {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+}
+.result__translation summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--primary);
+  min-height: 32px;
+}
+.result__translation p { margin: 8px 0 0; }
+.result__subtitle { margin: 12px 0 4px; font-size: 1rem; }
+
+.vocab {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.vocab__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+}
+.vocab__pt { font-weight: 700; }
+.vocab__fa { color: var(--muted); }
+
+.result__note {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border-inline-start: 4px solid var(--accent);
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+}
+.result__note p { margin: 4px 0 0; }
+
 /* ---------- Empty states ---------- */
 .empty-state {
   text-align: center;

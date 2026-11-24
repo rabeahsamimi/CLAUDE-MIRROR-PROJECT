@@ -20,10 +20,11 @@ export const PREFERRED_MODELS = [
   'gemini-2.5-flash-lite',
 ];
 
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 45000; // photos on a slow mobile connection can take a while
 
 // A small error type so the rest of the app knows WHAT went wrong.
-// reason is one of: 'invalid', 'quota', 'forbidden', 'network', 'nomodel', 'unknown'
+// reason is one of: 'invalid', 'quota', 'forbidden', 'network', 'nomodel', 'notfound',
+//                   'blocked' (safety filter), 'badresponse' (answer was not usable), 'unknown'
 export class GeminiError extends Error {
   constructor(reason, detail = '') {
     super(detail || reason);
@@ -73,6 +74,7 @@ export function errorFromResponse(status, body) {
   if (status === 400 && /api key/i.test(message)) return new GeminiError('invalid', message);
   if (status === 429) return new GeminiError('quota', message);
   if (status === 403) return new GeminiError('forbidden', message);
+  if (status === 404) return new GeminiError('notfound', message); // model renamed or retired
   return new GeminiError('unknown', message);
 }
 
@@ -115,4 +117,129 @@ export async function checkKey(apiKey) {
   const model = pickModel(available);
   if (!model) throw new GeminiError('nomodel');
   return model;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3: describe a photo in Portuguese
+// ---------------------------------------------------------------------------
+
+// What each level means, in words the AI understands well (CEFR levels).
+export const LEVEL_GUIDE = {
+  A1: 'CEFR A1 (absolute beginner): 2 or 3 very short sentences, present tense only, the most common everyday words, no idioms.',
+  A2: 'CEFR A2 (elementary): 3 or 4 short sentences, present tense and simple past (pretérito perfeito), simple connectors like "e", "mas", "porque".',
+  B1: 'CEFR B1 (intermediate): 4 or 5 sentences, natural everyday Brazilian Portuguese, can include an opinion, a comparison or a common expression.',
+};
+
+// The "system instruction" tells the AI who it is and what rules to follow.
+function tutorInstruction(level) {
+  return [
+    'You are a warm, patient Brazilian Portuguese tutor for a Persian-speaking adult who lives in Porto Alegre, Brazil.',
+    'The student sends a photo of something from daily life. Identify the MAIN object and teach Brazilian Portuguese (pt-BR) about it.',
+    `Student level: ${LEVEL_GUIDE[level] || LEVEL_GUIDE.A1}`,
+    'Rules:',
+    '- Use Brazilian Portuguese only (not European Portuguese): e.g. "celular", "ônibus", "geladeira".',
+    '- Always give nouns with their article ("a caneca", "o garfo") so the student learns the gender.',
+    '- Persian text must be natural Persian in Persian script.',
+    '- If the photo is too dark, blurry, or has no clear object, set "recognized" to false and leave the other text fields empty.',
+    '- If a person is visible, do not identify or describe them; focus on an object. If a document or screen with personal data is visible, never copy its text.',
+    '- The "note_fa" is one short, useful tip in Persian (grammar, pronunciation or Brazilian culture) about this object or its words.',
+  ].join('\n');
+}
+
+// The exact shape of the answer we want back (Gemini "structured output").
+// Asking for JSON makes the answer predictable and easy for the app to show.
+const DESCRIPTION_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    recognized: { type: 'BOOLEAN' },
+    object_pt: { type: 'STRING', description: 'Name of the main object in pt-BR, with article' },
+    object_fa: { type: 'STRING', description: 'Name of the object in Persian' },
+    description_pt: { type: 'STRING', description: 'Description at the student level, in pt-BR' },
+    description_fa: { type: 'STRING', description: 'Persian translation of description_pt' },
+    vocabulary: {
+      type: 'ARRAY',
+      description: '3 to 5 useful words from the description',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          pt: { type: 'STRING', description: 'Word in pt-BR (nouns with article)' },
+          fa: { type: 'STRING', description: 'Persian meaning' },
+        },
+        required: ['pt', 'fa'],
+      },
+    },
+    note_fa: { type: 'STRING' },
+  },
+  required: ['recognized', 'object_pt', 'object_fa', 'description_pt', 'description_fa', 'vocabulary', 'note_fa'],
+};
+
+// Reads the text out of a Gemini answer, or explains why there is none.
+export function extractText(body) {
+  if (body?.promptFeedback?.blockReason) throw new GeminiError('blocked', body.promptFeedback.blockReason);
+  const candidate = body?.candidates?.[0];
+  if (!candidate) throw new GeminiError('badresponse', 'no candidates');
+  if (['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'IMAGE_SAFETY'].includes(candidate.finishReason)) {
+    throw new GeminiError('blocked', candidate.finishReason);
+  }
+  const text = (candidate.content?.parts || [])
+    .filter((part) => typeof part.text === 'string' && !part.thought)
+    .map((part) => part.text)
+    .join('');
+  if (!text) throw new GeminiError('badresponse', candidate.finishReason || 'empty');
+  return text;
+}
+
+// Never trust data blindly, even from Google: check every field and keep it short.
+function cleanText(value, max = 1200) {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+export function cleanDescription(raw) {
+  const result = {
+    recognized: raw?.recognized === true,
+    objectPt: cleanText(raw?.object_pt, 120),
+    objectFa: cleanText(raw?.object_fa, 120),
+    descriptionPt: cleanText(raw?.description_pt),
+    descriptionFa: cleanText(raw?.description_fa),
+    vocabulary: (Array.isArray(raw?.vocabulary) ? raw.vocabulary : [])
+      .map((item) => ({ pt: cleanText(item?.pt, 80), fa: cleanText(item?.fa, 80) }))
+      .filter((item) => item.pt && item.fa)
+      .slice(0, 6),
+    noteFa: cleanText(raw?.note_fa, 500),
+  };
+  if (result.recognized && (!result.objectPt || !result.descriptionPt)) result.recognized = false;
+  return result;
+}
+
+// Sends the photo to Gemini and returns a clean description object.
+// image = { base64, mimeType }  (base64 = the photo as text, without "data:..." prefix)
+export async function describeImage(apiKey, model, image, level) {
+  const body = {
+    systemInstruction: { parts: [{ text: tutorInstruction(level) }] },
+    contents: [{
+      role: 'user',
+      parts: [
+        { inlineData: { mimeType: image.mimeType, data: image.base64 } },
+        { text: `Describe the main object for a ${level} student. Answer only with the JSON.` },
+      ],
+    }],
+    generationConfig: {
+      temperature: 0.4,            // lower = more careful and consistent
+      maxOutputTokens: 2048,
+      responseMimeType: 'application/json',
+      responseSchema: DESCRIPTION_SCHEMA,
+    },
+  };
+  const answer = await request(`models/${encodeURIComponent(model)}:generateContent`, apiKey, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let parsed;
+  try {
+    parsed = JSON.parse(extractText(answer));
+  } catch (error) {
+    if (error instanceof GeminiError) throw error;
+    throw new GeminiError('badresponse', 'invalid JSON');
+  }
+  return cleanDescription(parsed);
 }

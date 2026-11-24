@@ -13,6 +13,7 @@ import { describeImage } from './gemini.js';
 import { errorMessageKey } from './ai.js';
 import { speak, stopSpeaking } from './speech.js';
 import { initPractice } from './practice.js';
+import { initConversation } from './conversation.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -37,14 +38,21 @@ function listenButton(text, label) {
 }
 
 // getSettings() returns the current settings; ai = the shared AI helper (js/ai.js).
-export function initMirror({ getSettings, ai }) {
+export function initMirror({ getSettings, ai, onConversationFinished }) {
   const practice = initPractice({ ai });
+  const conversation = initConversation({
+    ai,
+    getSettings,
+    onBack: () => { conversation.pause(); show('result'); },
+    onFinished: (summary) => onConversationFinished?.(summary),
+  });
   let shownResult = null;
   const states = {
     start: $('#mirror-start'),
     loading: $('#mirror-loading'),
     error: $('#mirror-error'),
     result: $('#mirror-result'),
+    chat: $('#mirror-chat'),
   };
 
   function show(stateName) {
@@ -55,6 +63,7 @@ export function initMirror({ getSettings, ai }) {
   // Forget the current photo and free its memory.
   function resetPhoto() {
     practice.reset();
+    conversation.reset();
     stopSpeaking();
     shownResult = null;
     if (currentImage) URL.revokeObjectURL(currentImage.previewUrl);
@@ -104,7 +113,7 @@ export function initMirror({ getSettings, ai }) {
 
     $('#result-note').textContent = result.noteFa;
     $('#result-note-box').hidden = !result.noteFa;
-    shownResult = result;
+    shownResult = { ...result, level };
     practice.setTargets(result);
     show('result');
   }
@@ -165,6 +174,19 @@ export function initMirror({ getSettings, ai }) {
   $('#mirror-retry').addEventListener('click', () => { if (currentImage && !busy) analyze(); });
   $('#mirror-new').addEventListener('click', newPhoto);
   $('#mirror-error-new').addEventListener('click', newPhoto);
+  $('#chat-new-photo').addEventListener('click', newPhoto);
+  $('#chat-start').addEventListener('click', () => {
+    if (!shownResult) return;
+    practice.reset();
+    stopSpeaking();
+    // Coming back to the same photo continues the same conversation.
+    if (conversation.isActive()) return show('chat');
+    conversation.start(
+      { objectPt: shownResult.objectPt, descriptionPt: shownResult.descriptionPt, level: shownResult.level },
+      currentImage?.previewUrl,
+    );
+    show('chat');
+  });
   $('#listen-object').addEventListener('click', (event) => speak(shownResult?.objectPt, { button: event.currentTarget }));
   $('#listen-description').addEventListener('click', (event) => speak(shownResult?.descriptionPt, { button: event.currentTarget }));
   $('#listen-description-slow').addEventListener('click', (event) => speak(shownResult?.descriptionPt, { slow: true, button: event.currentTarget }));
@@ -174,6 +196,7 @@ export function initMirror({ getSettings, ai }) {
     // Called when another screen is opened: stop sound and recording.
     leave() {
       practice.reset();
+      conversation.pause();
       stopSpeaking();
     },
     update() {

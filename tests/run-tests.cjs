@@ -826,6 +826,234 @@ async function shot(page, name) {
     await ctx.close();
   });
 
+
+  // ======================= Stage 5: conversation =======================
+  console.log('\nStage 5 — conversation');
+
+  // A pretend Gemini tutor. It looks at what kind of request arrives and answers like the real one.
+  function tutorGemini(log, overrides = {}) {
+    return (route) => {
+      if (route.request().method() === 'GET') return json(route, 200, { models: [MODELS_OK.models[1]] });
+      const body = JSON.parse(route.request().postData() || '{}');
+      const system = body.systemInstruction?.parts?.[0]?.text || '';
+      if (system.includes('conversation partner')) {
+        const input = JSON.parse(body.contents[0].parts[0].text);
+        log.push(input);
+        if (overrides.chat) return overrides.chat(route, input);
+        if (input.mode === 'start') {
+          return json(route, 200, geminiAnswer({ is_correct: false, corrected_pt: '', mistakes: [], comment_fa: '', model_answer_pt: '',
+            next_question_pt: 'De que cor é a caneca?', next_question_fa: 'ماگ چه رنگی است؟' }));
+        }
+        if (input.mode === 'help') {
+          return json(route, 200, geminiAnswer({ is_correct: false, corrected_pt: '', mistakes: [], comment_fa: 'برای رنگ از «é» استفاده کن.',
+            model_answer_pt: 'A caneca é azul.', next_question_pt: '', next_question_fa: '' }));
+        }
+        const last = input.question_number >= input.total_questions;
+        const next = last ? {} : { next_question_pt: `Pergunta ${input.question_number + 1}?`, next_question_fa: `سؤال ${input.question_number + 1}؟` };
+        const wrong = input.student_answer.startsWith('O caneca');
+        return json(route, 200, geminiAnswer({
+          is_correct: !wrong,
+          corrected_pt: wrong ? 'A caneca é azul.' : '',
+          mistakes: wrong ? [{ wrong: 'O caneca', right: 'A caneca', category: 'gender', explanation_fa: '«caneca» مؤنث است، پس «a» می‌گیرد.' }] : [],
+          comment_fa: wrong ? 'نزدیک بود!' : 'آفرین!',
+          model_answer_pt: '', next_question_pt: '', next_question_fa: '', ...next,
+        }));
+      }
+      if (system.includes('speech-to-text')) return json(route, 200, geminiAnswer({ no_speech: false, heard_pt: 'A caneca é azul' }));
+      return json(route, 200, geminiAnswer(GOOD_DESCRIPTION));
+    };
+  }
+  async function chatPage(log = [], overrides = {}) {
+    const { ctx, p } = await mirrorPage();
+    await p.addInitScript(FAKE_SPEECH);
+    await p.reload();
+    await p.waitForSelector('body.is-ready');
+    await p.route('https://generativelanguage.googleapis.com/**', tutorGemini(log, overrides));
+    await p.setInputFiles('#camera-input', PHOTO);
+    await p.locator('#mirror-result').waitFor({ state: 'visible' });
+    await p.click('#chat-start');
+    await p.locator('#mirror-chat').waitFor({ state: 'visible' });
+    await p.locator('.msg--ai').first().waitFor();
+    return { ctx, p };
+  }
+  async function answer(p, text) {
+    const before = await p.locator('.msg--feedback').count();
+    await p.fill('#chat-input', text);
+    await p.click('#chat-send');
+    await p.waitForFunction((n) => document.querySelectorAll('.msg--feedback').length > n, before);
+  }
+
+  await test('conversation starts with a first question about the object', async () => {
+    const log = [];
+    const { ctx, p } = await chatPage(log);
+    assert.equal(log[0].mode, 'start');
+    assert.equal(log[0].object, 'a caneca');
+    assert.equal(log[0].level, 'A1');
+    assert.equal(await p.textContent('.msg--ai .msg__pt'), 'De que cor é a caneca?');
+    assert.equal(await p.textContent('#chat-progress'), 'سؤال 1 از 5');
+    assert.equal(await p.textContent('#chat-object'), 'a caneca');
+    await p.click('.msg--ai .icon-button');
+    assert.equal((await spoken(p)).at(-1).text, 'De que cor é a caneca?');
+    assert.deepEqual(p.errors, []);
+    await ctx.close();
+  });
+
+  await test('a correct answer gets ✓ and the next question', async () => {
+    const { ctx, p } = await chatPage();
+    await answer(p, 'A caneca é azul.');
+    assert.equal(await p.textContent('.msg--me'), 'A caneca é azul.');
+    assert.equal(await p.locator('.msg--ok').count(), 1);
+    assert.equal(await p.inputValue('#chat-input'), '');
+    assert.equal(await p.textContent('#chat-progress'), 'سؤال 2 از 5');
+    assert.equal(await p.locator('.msg--ai').count(), 2);
+    await ctx.close();
+  });
+
+  await test('a wrong answer is corrected with the right form and a Persian explanation', async () => {
+    const log = [];
+    const { ctx, p } = await chatPage(log);
+    await answer(p, 'O caneca é azul');
+    assert.equal(await p.locator('.msg--fix').count(), 1);
+    assert.equal(await p.textContent('.msg--fix .msg__corrected'), 'A caneca é azul.');
+    assert.equal(await p.textContent('.mistakes__change s'), 'O caneca');
+    assert.equal(await p.textContent('.mistakes__change strong'), 'A caneca');
+    assert.match(await p.textContent('.mistakes__why'), /مؤنث/);
+    // No manual scrolling here: the screenshot shows where the app itself scrolled.
+    await shot(p, '15-chat-correction');
+    const box = await p.evaluate(() => {
+      const fix = document.querySelector('.msg--fix').getBoundingClientRect();
+      const composer = document.querySelector('#chat-form').getBoundingClientRect();
+      const question = [...document.querySelectorAll('.msg--ai')].at(-1).getBoundingClientRect();
+      return { fixTop: fix.top, composerTop: composer.top, questionBottom: question.bottom };
+    });
+    assert.ok(box.questionBottom <= box.composerTop + 1, 'the new question must not be hidden behind the answer box');
+    // The next request remembers the conversation so far.
+    await answer(p, 'Sim, eu tenho.');
+    const third = log.at(-1);
+    assert.equal(third.history.length, 1);
+    assert.equal(third.history[0].answer, 'O caneca é azul');
+    assert.equal(third.history[0].corrected, 'A caneca é azul.');
+    assert.equal(third.current_question, 'Pergunta 2?');
+    await ctx.close();
+  });
+
+  await test('"I don\'t know" shows an example answer and keeps the same question', async () => {
+    const log = [];
+    const { ctx, p } = await chatPage(log);
+    await p.click('#chat-help');
+    await p.locator('.msg--help').waitFor();
+    assert.equal(log.at(-1).mode, 'help');
+    assert.equal(log.at(-1).current_question, 'De que cor é a caneca?');
+    assert.match(await p.textContent('.msg--help .msg__pt'), /A caneca é azul/);
+    assert.equal(await p.textContent('#chat-progress'), 'سؤال 1 از 5');
+    await ctx.close();
+  });
+
+  await test('after 5 answers a summary shows the score and the mistakes; "again" restarts', async () => {
+    const log = [];
+    const { ctx, p } = await chatPage(log);
+    await answer(p, 'A caneca é azul.');
+    await answer(p, 'O caneca é grande.');
+    await answer(p, 'Sim.');
+    await answer(p, 'Eu uso para café.');
+    await answer(p, 'Está na mesa.');
+    await p.locator('#chat-summary').waitFor({ state: 'visible' });
+    assert.equal(log.at(-1).question_number, 5);
+    assert.equal(await p.textContent('#chat-score'), '4 جواب درست از 5');
+    assert.equal(await p.locator('#chat-summary-mistakes li').count(), 1);
+    assert.equal(await p.isVisible('#chat-form'), false);
+    await shot(p, '16-chat-summary');
+    await p.click('#chat-restart');
+    await p.locator('.msg--ai').first().waitFor();
+    assert.equal(await p.locator('.msg').count(), 1);
+    assert.equal(await p.textContent('#chat-progress'), 'سؤال 1 از 5');
+    assert.equal(await p.isVisible('#chat-form'), true);
+    await ctx.close();
+  });
+
+  await test('sending an empty answer asks you to write something (nothing sent)', async () => {
+    const log = [];
+    const { ctx, p } = await chatPage(log);
+    const before = log.length;
+    await p.click('#chat-send');
+    assert.equal(await p.getAttribute('#chat-status', 'data-kind'), 'error');
+    assert.equal(log.length, before);
+    await ctx.close();
+  });
+
+  await test('if the AI fails, your typed answer is kept (not lost)', async () => {
+    let fail = false;
+    const { ctx, p } = await chatPage([], {
+      chat: (route, input) => (input.mode === 'answer' && fail
+        ? json(route, 429, { error: { code: 429, message: 'Resource exhausted' } })
+        : tutorGemini([])(route)),
+    });
+    fail = true;
+    await p.fill('#chat-input', 'A caneca é azul.');
+    await p.click('#chat-send');
+    await p.waitForFunction(() => document.querySelector('#chat-status').dataset.kind === 'error');
+    assert.match(await p.textContent('#chat-status'), /سهمیه/);
+    assert.equal(await p.inputValue('#chat-input'), 'A caneca é azul.');
+    assert.equal(await p.locator('.msg--me').count(), 0);
+    assert.equal(await p.isDisabled('#chat-send'), false);
+    await ctx.close();
+  });
+
+  await test('voice answer: the transcript goes into the text box to check, not sent', async () => {
+    const log = [];
+    const { ctx, p } = await chatPage(log);
+    const before = log.length;
+    await p.click('#chat-mic');
+    await p.waitForFunction(() => document.querySelector('#chat-mic').getAttribute('aria-pressed') === 'true');
+    await p.waitForTimeout(1200);
+    await p.click('#chat-mic');
+    await p.waitForFunction(() => document.querySelector('#chat-input').value === 'A caneca é azul', null, { timeout: 15000 });
+    assert.equal(log.length, before, 'not sent automatically');
+    await ctx.close();
+  });
+
+  await test('Back returns to the result; "Talk" again continues the same conversation', async () => {
+    const { ctx, p } = await chatPage();
+    await answer(p, 'A caneca é azul.');
+    await p.click('#chat-back');
+    await p.locator('#mirror-result').waitFor({ state: 'visible' });
+    await p.click('#chat-start');
+    await p.locator('#mirror-chat').waitFor({ state: 'visible' });
+    assert.equal(await p.locator('.msg--ai').count(), 2);
+    await p.click('#chat-back');
+    await p.click('#mirror-new');
+    assert.equal(await p.isVisible('#mirror-start'), true);
+    assert.equal(await p.locator('.msg').count(), 0, 'a new photo starts fresh');
+    await ctx.close();
+  });
+
+  await test('AI text in the chat is shown as plain text', async () => {
+    const { ctx, p } = await chatPage([], {
+      chat: (route) => json(route, 200, geminiAnswer({ is_correct: false, corrected_pt: '', mistakes: [], comment_fa: '',
+        model_answer_pt: '', next_question_pt: '<img src=x onerror="window.__hacked=1">?', next_question_fa: '' })),
+    });
+    assert.match(await p.textContent('.msg--ai .msg__pt'), /<img/);
+    assert.equal(await p.evaluate(() => window.__hacked), undefined);
+    await ctx.close();
+  });
+
+  await test('switching tabs while recording an answer turns the mic off', async () => {
+    const { ctx, p } = await chatPage();
+    await p.evaluate(() => {
+      window.__tracks = [];
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (c) => { const st = await original(c); window.__tracks.push(...st.getTracks()); return st; };
+    });
+    await p.click('#chat-mic');
+    await p.waitForFunction(() => document.querySelector('#chat-mic').getAttribute('aria-pressed') === 'true');
+    await p.click('.tabbar__item[data-tab="progress"]');
+    await p.locator('#screen-progress').waitFor({ state: 'visible' });
+    const live = await p.evaluate(() => window.__tracks.filter((track) => track.readyState === 'live').length);
+    assert.equal(live, 0);
+    assert.deepEqual(p.errors, []);
+    await ctx.close();
+  });
+
   await browser.close();
   server.close();
 

@@ -132,6 +132,12 @@
           <p id="result-note" lang="fa" dir="rtl"></p>
         </div>
 
+        <!-- Stage 5: start a conversation about this object -->
+        <button type="button" class="button button--primary button--large" id="chat-start">
+          <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-chat"/></svg>
+          <span data-i18n="chat.start"></span>
+        </button>
+
         <!-- Pronunciation practice (js/practice.js) -->
         <section class="practice" id="practice" aria-labelledby="practice-title">
           <h4 class="result__subtitle" id="practice-title" data-i18n="practice.title"></h4>
@@ -171,8 +177,51 @@
           </div>
         </section>
 
-        <button type="button" class="button button--primary button--large" id="mirror-new" data-i18n="mirror.newPhoto"></button>
+        <button type="button" class="button button--large" id="mirror-new" data-i18n="mirror.newPhoto"></button>
       </article>
+
+      <!-- Step 4: conversation about the object (js/conversation.js) -->
+      <section class="card chat" id="mirror-chat" hidden aria-labelledby="chat-object">
+        <div class="chat__header">
+          <img class="chat__thumb" id="chat-photo" alt="" width="52" height="52">
+          <div class="chat__title">
+            <h3 id="chat-object" lang="pt-BR" dir="ltr"></h3>
+            <p id="chat-progress"></p>
+          </div>
+          <button type="button" class="button button--small button--ghost" id="chat-back" data-i18n="chat.back"></button>
+        </div>
+
+        <ol class="chat__messages" id="chat-messages" aria-live="polite"></ol>
+        <p class="status" id="chat-status" role="status" aria-live="polite"></p>
+        <button type="button" class="button" id="chat-retry-start" hidden data-i18n="mirror.retry"></button>
+
+        <form class="chat__composer" id="chat-form" autocomplete="off">
+          <label class="visually-hidden" for="chat-input" data-i18n="chat.inputLabel"></label>
+          <!-- autocorrect off: iPhone would "fix" your Portuguese mistakes before the tutor sees them -->
+          <textarea id="chat-input" class="input chat__input" rows="2" lang="pt-BR" dir="ltr"
+                    autocapitalize="sentences" autocorrect="off" spellcheck="false"
+                    data-i18n-placeholder="chat.placeholder"></textarea>
+          <div class="chat__actions">
+            <button type="button" class="icon-button icon-button--mic" id="chat-mic" aria-pressed="false" data-i18n-aria="chat.mic">
+              <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#icon-mic"/></svg>
+            </button>
+            <button type="button" class="button button--small" id="chat-help" data-i18n="chat.help"></button>
+            <button type="submit" class="button button--primary" id="chat-send" data-i18n="chat.send"></button>
+          </div>
+        </form>
+
+        <div class="chat__summary" id="chat-summary" hidden>
+          <h4 data-i18n="chat.summaryTitle"></h4>
+          <p class="chat__score" id="chat-score"></p>
+          <p id="chat-summary-none" data-i18n="chat.noMistakes"></p>
+          <p class="hint" id="chat-summary-list-title" data-i18n="chat.mistakesTitle"></p>
+          <ul class="chat__summary-mistakes" id="chat-summary-mistakes"></ul>
+          <div class="button-row">
+            <button type="button" class="button button--primary" id="chat-restart" data-i18n="chat.restart"></button>
+            <button type="button" class="button" id="chat-new-photo" data-i18n="mirror.newPhoto"></button>
+          </div>
+        </div>
+      </section>
     </section>
 
     <!-- ========== Screen: Review ========== -->
@@ -336,6 +385,9 @@
     <symbol id="icon-mic" viewBox="0 0 64 64">
       <rect x="23" y="8" width="18" height="32" rx="9" fill="currentColor"/>
       <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M15 30a17 17 0 0 0 34 0M32 47v9M24 56h16"/>
+    </symbol>
+    <symbol id="icon-chat" viewBox="0 0 64 64">
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" d="M10 14h44v28H30l-12 10V42h-8z"/>
     </symbol>
     <symbol id="icon-settings" viewBox="0 0 64 64">
       <circle cx="32" cy="32" r="8" fill="none" stroke="currentColor" stroke-width="4"/>

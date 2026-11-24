@@ -8,7 +8,7 @@
 
 import { t } from './i18n.js';
 import { prepareImage } from './image.js';
-import { describeImage, checkKey, GeminiError } from './gemini.js';
+import { describeImage, checkKey, listModels, fallbackModels, withRetry, GeminiError } from './gemini.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -99,23 +99,39 @@ export function initMirror({ getSettings, save }) {
     }
     busy = true;
     $('#loading-photo').src = currentImage.previewUrl;
+    setLoadingText('mirror.loading');
     show('loading');
+    const level = settings.level;
+    // One model, with automatic retries if Google is busy.
+    const run = (model) => withRetry(
+      () => describeImage(settings.apiKey, model, currentImage, level),
+      { onRetry: () => setLoadingText('mirror.busyRetrying') },
+    );
     try {
       let model = await ensureModel(settings.apiKey);
       let result;
       try {
-        result = await describeImage(settings.apiKey, model, currentImage, settings.level);
+        result = await run(model);
       } catch (error) {
-        // If Google retired or renamed the model, choose a new one and try once more.
-        if (!(error instanceof GeminiError) || error.reason !== 'notfound') throw error;
-        model = await ensureModel(settings.apiKey, true);
-        result = await describeImage(settings.apiKey, model, currentImage, settings.level);
+        if (!(error instanceof GeminiError)) throw error;
+        if (error.reason === 'notfound') {
+          // Google retired or renamed the model: choose a new one and try once more.
+          model = await ensureModel(settings.apiKey, true);
+          result = await run(model);
+        } else if (['busy', 'quota'].includes(error.reason)) {
+          // Still busy after retries, or this model's free quota is used up (quotas are
+          // per model): try up to 2 other free models, just for this photo.
+          result = await tryOtherModels(settings.apiKey, model, level, error);
+        } else {
+          throw error;
+        }
       }
       if (!result.recognized) showError('mirror.notRecognized');
       else showResult(result, settings.level);
     } catch (error) {
       const messages = {
         quota: 'mirror.errorQuota',
+        busy: 'mirror.errorBusy',
         network: 'mirror.errorNetwork',
         invalid: 'mirror.errorInvalid',
         forbidden: 'mirror.errorInvalid',
@@ -127,6 +143,24 @@ export function initMirror({ getSettings, save }) {
     } finally {
       busy = false;
     }
+  }
+
+  function setLoadingText(key) {
+    $('#loading-text').textContent = t(key);
+  }
+
+  async function tryOtherModels(apiKey, busyModel, level, originalError) {
+    const others = fallbackModels(await listModels(apiKey), busyModel).slice(0, 2);
+    for (const model of others) {
+      setLoadingText('mirror.tryingOtherModel');
+      try {
+        return await describeImage(apiKey, model, currentImage, level);
+      } catch (error) {
+        const tryNext = error instanceof GeminiError && ['busy', 'quota', 'notfound'].includes(error.reason);
+        if (!tryNext) throw error;
+      }
+    }
+    throw originalError;
   }
 
   async function onFileChosen(event) {

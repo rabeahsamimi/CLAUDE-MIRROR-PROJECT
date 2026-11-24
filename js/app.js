@@ -9,7 +9,7 @@ import { loadSettings, saveSettings, isPlausibleKey } from './settings.js';
 import { checkKey, GeminiError } from './gemini.js';
 import { initMirror } from './mirror.js';
 
-export const APP_VERSION = '0.3.0'; // stage 3: camera + AI description
+export const APP_VERSION = '0.3.1'; // stage 3 + fix: retry and switch model when Google is busy
 
 const SCREENS = ['mirror', 'review', 'progress', 'settings'];
 let settings = loadSettings();
@@ -124,6 +124,7 @@ function wireSettings() {
       const messages = {
         invalid: 'settings.testInvalid',
         quota: 'settings.testQuota',
+        busy: 'settings.testBusy',
         forbidden: 'settings.testForbidden',
         network: 'settings.testNetwork',
         nomodel: 'settings.testNoModel',

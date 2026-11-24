@@ -24,7 +24,8 @@ const TIMEOUT_MS = 45000; // photos on a slow mobile connection can take a while
 
 // A small error type so the rest of the app knows WHAT went wrong.
 // reason is one of: 'invalid', 'quota', 'forbidden', 'network', 'nomodel', 'notfound',
-//                   'blocked' (safety filter), 'badresponse' (answer was not usable), 'unknown'
+//                   'busy' (Google servers overloaded, temporary), 'blocked' (safety filter),
+//                   'badresponse' (answer was not usable), 'unknown'
 export class GeminiError extends Error {
   constructor(reason, detail = '') {
     super(detail || reason);
@@ -72,6 +73,10 @@ export function errorFromResponse(status, body) {
 
   if (reasons.includes('API_KEY_INVALID') || status === 401) return new GeminiError('invalid', message);
   if (status === 400 && /api key/i.test(message)) return new GeminiError('invalid', message);
+  // 500/502/503/504 = a problem on Google's side, usually "high demand". It is temporary.
+  if ([500, 502, 503, 504].includes(status) || /high demand|overloaded|try again later/i.test(message)) {
+    return new GeminiError('busy', message);
+  }
   if (status === 429) return new GeminiError('quota', message);
   if (status === 403) return new GeminiError('forbidden', message);
   if (status === 404) return new GeminiError('notfound', message); // model renamed or retired
@@ -109,6 +114,37 @@ export function pickModel(available) {
   return usable.find((name) => name.includes('flash-lite'))
       || usable.find((name) => name.includes('flash'))
       || null;
+}
+
+// Other models to try, in order, when `current` is busy.
+// Same preference rules as pickModel, without the current model.
+export function fallbackModels(available, current) {
+  const usable = available.filter((name) => name.startsWith('gemini-') && !/(tts|image|embedding|live|audio)/.test(name));
+  const ordered = [
+    ...PREFERRED_MODELS.filter((name) => available.includes(name)),
+    ...usable.filter((name) => name.includes('flash-lite')),
+    ...usable.filter((name) => name.includes('flash') && !name.includes('flash-lite')),
+  ];
+  return [...new Set(ordered)].filter((name) => name !== current);
+}
+
+// Waits a number of milliseconds (used between retries).
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Runs `task`; if Google says it is busy, waits and tries again.
+// delays = how long to wait before each new try (here: 1.5 s, then 4 s).
+// onRetry(tryNumber) lets the screen tell the user what is happening.
+export async function withRetry(task, { delays = [1500, 4000], onRetry } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await task();
+    } catch (error) {
+      const canRetry = error instanceof GeminiError && error.reason === 'busy' && attempt < delays.length;
+      if (!canRetry) throw error;
+      onRetry?.(attempt + 1);
+      await wait(delays[attempt]);
+    }
+  }
 }
 
 // Checks that a key works and returns the chosen model name.

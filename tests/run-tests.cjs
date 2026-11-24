@@ -420,10 +420,11 @@ async function shot(page, name) {
     await ctx.close();
   });
 
-  await test('quota error (429), then "Try again" works with the same photo', async () => {
+  await test('quota error (429) on the only model, then "Try again" works with the same photo', async () => {
     const { ctx, p } = await mirrorPage();
     let calls = 0;
     await p.route('https://generativelanguage.googleapis.com/**', (route) => {
+      if (route.request().method() === 'GET') return json(route, 200, { models: [MODELS_OK.models[1]] });
       calls += 1;
       return calls === 1
         ? json(route, 429, { error: { code: 429, message: 'Resource has been exhausted', status: 'RESOURCE_EXHAUSTED' } })
@@ -436,6 +437,74 @@ async function shot(page, name) {
     await p.click('#mirror-retry');
     await p.locator('#mirror-result').waitFor({ state: 'visible' });
     assert.equal(calls, 2);
+    await ctx.close();
+  });
+
+  const BUSY = { error: { code: 503, message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', status: 'UNAVAILABLE' } };
+  const MODELS_TWO = { models: [
+    { name: 'models/gemini-3.5-flash-lite', supportedGenerationMethods: ['generateContent'] },
+    { name: 'models/gemini-3.1-flash-lite', supportedGenerationMethods: ['generateContent'] },
+  ] };
+
+  await test('Google busy (503) twice -> app retries by itself and shows the result', async () => {
+    const { ctx, p } = await mirrorPage();
+    let calls = 0;
+    await p.route('https://generativelanguage.googleapis.com/**', (route) => {
+      calls += 1;
+      return calls <= 2 ? json(route, 503, BUSY) : json(route, 200, geminiAnswer(GOOD_DESCRIPTION));
+    });
+    await p.setInputFiles('#camera-input', PHOTO);
+    await p.waitForFunction(() => /شلوغ/.test(document.querySelector('#loading-text').textContent));
+    await p.locator('#mirror-result').waitFor({ state: 'visible', timeout: 15000 });
+    assert.equal(calls, 3);
+    await ctx.close();
+  });
+
+  await test('main model stays busy -> another free model answers (saved model unchanged)', async () => {
+    const { ctx, p } = await mirrorPage();
+    const posted = [];
+    await p.route('https://generativelanguage.googleapis.com/**', (route) => {
+      if (route.request().method() === 'GET') return json(route, 200, MODELS_TWO);
+      posted.push(route.request().url());
+      return route.request().url().includes('gemini-3.5-flash-lite')
+        ? json(route, 503, BUSY) : json(route, 200, geminiAnswer(GOOD_DESCRIPTION));
+    });
+    await p.setInputFiles('#camera-input', PHOTO);
+    await p.locator('#mirror-result').waitFor({ state: 'visible', timeout: 20000 });
+    assert.equal(posted.length, 4, '3 tries on the main model + 1 on the other');
+    assert.match(posted[3], /gemini-3\.1-flash-lite/);
+    const stored = await p.evaluate(() => JSON.parse(localStorage.getItem('espelho.settings.v1')));
+    assert.equal(stored.model, 'gemini-3.5-flash-lite');
+    await ctx.close();
+  });
+
+  await test('quota used up on the main model -> another model answers right away', async () => {
+    const { ctx, p } = await mirrorPage();
+    const posted = [];
+    await p.route('https://generativelanguage.googleapis.com/**', (route) => {
+      if (route.request().method() === 'GET') return json(route, 200, MODELS_TWO);
+      posted.push(route.request().url());
+      return route.request().url().includes('gemini-3.5-flash-lite')
+        ? json(route, 429, { error: { code: 429, message: 'Resource has been exhausted', status: 'RESOURCE_EXHAUSTED' } })
+        : json(route, 200, geminiAnswer(GOOD_DESCRIPTION));
+    });
+    await p.setInputFiles('#camera-input', PHOTO);
+    await p.locator('#mirror-result').waitFor({ state: 'visible' });
+    assert.equal(posted.length, 2);
+    await ctx.close();
+  });
+
+  await test('every model busy -> clear Persian message (not "unexpected error")', async () => {
+    const { ctx, p } = await mirrorPage();
+    await p.route('https://generativelanguage.googleapis.com/**', (route) => (
+      route.request().method() === 'GET' ? json(route, 200, MODELS_TWO) : json(route, 503, BUSY)));
+    await p.setInputFiles('#camera-input', PHOTO);
+    await p.locator('#mirror-error').waitFor({ state: 'visible', timeout: 20000 });
+    const text = await p.textContent('#mirror-error-text');
+    assert.match(text, /شلوغ/);
+    assert.doesNotMatch(text, /غیرمنتظره/);
+    assert.equal(await p.isVisible('#mirror-retry'), true);
+    await shot(p, '13-error-busy');
     await ctx.close();
   });
 

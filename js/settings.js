@@ -53,8 +53,10 @@ export function saveSettings(changes) {
   }
 }
 
-// Gemini keys look like "AIza" + 35 letters/numbers/-/_ (39 characters).
-// We only warn on a clearly wrong format; Google decides if a key is really valid.
-export function looksLikeGeminiKey(key) {
-  return /^AIza[0-9A-Za-z_-]{30,}$/.test(key);
+// Google has changed the format of API keys over time (older keys start with "AIza",
+// newer ones do not), so we do NOT check the first letters. We only catch obvious
+// copy/paste mistakes: spaces inside the key, or a key that is far too short.
+// Whether a key really works is decided by Google, with the "Test key" button.
+export function isPlausibleKey(key) {
+  return key.length >= 20 && !/\s/.test(key);
 }

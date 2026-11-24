@@ -158,6 +158,26 @@ async function shot(page, name) {
     assert.equal(await page.inputValue('#api-key'), FAKE_KEY);
   });
 
+  await test('a key in Google\'s newer format (not starting with AIza) is accepted', async () => {
+    const newFormatKey = 'AQ.Ab8RN6Lr2zXkTestOnly-not_a_real_key_123456';
+    await page.fill('#api-key', newFormatKey);
+    await page.click('#save-key');
+    assert.equal(await page.getAttribute('#key-status', 'data-kind'), 'ok');
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('espelho.settings.v1')));
+    assert.equal(stored.apiKey, newFormatKey);
+  });
+
+  await test('a key with a space inside (copy/paste mistake) is rejected and not saved', async () => {
+    await page.fill('#api-key', 'AQ.Ab8RN6Lr2zXk TestOnly-not_a_real_key');
+    await page.click('#save-key');
+    assert.equal(await page.getAttribute('#key-status', 'data-kind'), 'error');
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('espelho.settings.v1')));
+    assert.equal(stored.apiKey, 'AQ.Ab8RN6Lr2zXkTestOnly-not_a_real_key_123456');
+    // put the normal test key back for the next tests
+    await page.fill('#api-key', FAKE_KEY);
+    await page.click('#save-key');
+  });
+
   await test('Mirror screen no longer asks for a key once one is saved', async () => {
     await page.goto(BASE + '#mirror');
     assert.equal(await page.isVisible('#mirror-need-key'), false);

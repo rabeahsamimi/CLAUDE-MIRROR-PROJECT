@@ -5,10 +5,10 @@
 //   4. reacts to buttons on the Settings screen.
 
 import { applyLanguage, t } from './i18n.js';
-import { loadSettings, saveSettings, looksLikeGeminiKey } from './settings.js';
+import { loadSettings, saveSettings, isPlausibleKey } from './settings.js';
 import { checkKey, GeminiError } from './gemini.js';
 
-export const APP_VERSION = '0.2.0'; // stage 2
+export const APP_VERSION = '0.2.1'; // stage 2 + fix: accept new Google key formats
 
 const SCREENS = ['mirror', 'review', 'progress', 'settings'];
 let settings = loadSettings();
@@ -99,11 +99,12 @@ function wireSettings() {
     const key = $('#api-key').value.trim();
     $('#api-key').value = key;
     if (!key) return setStatus(t('settings.empty'), 'error');
+    if (!isPlausibleKey(key)) return setStatus(t('settings.badFormat'), 'error');
     // A new key may have different models, so we forget the old choice.
     if (!save({ apiKey: key, model: key === settings.apiKey ? settings.model : '' })) {
       return setStatus(t('settings.testError', { detail: 'storage' }), 'error');
     }
-    setStatus(looksLikeGeminiKey(key) ? t('settings.saved') : t('settings.badFormat'), looksLikeGeminiKey(key) ? 'ok' : 'error');
+    setStatus(t('settings.saved'), 'ok');
   });
 
   $('#test-key').addEventListener('click', async () => {

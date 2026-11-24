@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Espelho IA icon: a hand mirror (yellow frame, blue glass) with an AI sparkle, on Brazilian green. -->
+  <rect width="512" height="512" rx="112" fill="#0b7a4b"/>
+  <!-- handle -->
+  <rect x="234" y="330" width="44" height="130" rx="22" fill="#f2c230"/>
+  <!-- frame -->
+  <ellipse cx="256" cy="220" rx="150" ry="170" fill="#f2c230"/>
+  <!-- glass -->
+  <ellipse cx="256" cy="220" rx="118" ry="138" fill="#1e4fa3"/>
+  <!-- reflection -->
+  <path d="M186 150 q20-40 60-52" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="16" stroke-linecap="round"/>
+  <!-- AI sparkle -->
+  <path d="M256 150 C264 196 280 212 326 220 C280 228 264 244 256 290 C248 244 232 228 186 220 C232 212 248 196 256 150 Z" fill="#ffffff"/>
+  <circle cx="318" cy="160" r="12" fill="#ffffff"/>
+</svg>

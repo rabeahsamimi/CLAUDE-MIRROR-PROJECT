@@ -1,0 +1,209 @@
+<!doctype html>
+<!--
+  index.html — the only HTML page of the app.
+  All screens (Mirror, Review, Progress, Settings) live here as <section>s.
+  JavaScript (js/app.js) shows one screen at a time based on the URL hash (#mirror, #settings, ...).
+  Visible text is NOT written here: it comes from js/i18n.js, so the app can switch
+  between Persian (right-to-left) and Portuguese (left-to-right).
+-->
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <!-- viewport-fit=cover lets the app use the full iPhone screen (around the notch). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <!-- Security: only load code from this site, and only talk to the Gemini API.
+       This protects the API key saved on the phone from malicious scripts. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https://generativelanguage.googleapis.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+
+  <title>Espelho IA</title>
+  <meta name="description" content="Aprenda português do Brasil com o mundo ao seu redor.">
+
+  <!-- PWA: these tags make "Add to Home Screen" on iPhone look and feel like a real app. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Espelho IA">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#f6f8f5">
+
+  <link rel="stylesheet" href="css/styles.css">
+  <!-- type="module" lets us split JavaScript into small files that import each other. -->
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- Shown only if JavaScript is turned off. -->
+  <noscript><p class="noscript">Espelho IA precisa de JavaScript.</p></noscript>
+
+  <header class="app-header">
+    <img class="app-header__logo" src="icons/icon.svg" alt="" width="32" height="32">
+    <h1 class="app-header__title" data-i18n="app.name"></h1>
+  </header>
+
+  <main id="main" class="app-main" tabindex="-1">
+
+    <!-- ========== Screen: Mirror (camera) ========== -->
+    <section id="screen-mirror" class="screen" data-screen="mirror" aria-labelledby="mirror-title" hidden>
+      <h2 id="mirror-title" class="screen__title" data-i18n="mirror.title"></h2>
+      <p class="screen__lead" data-i18n="app.tagline"></p>
+
+      <!-- Shown when there is no API key yet. -->
+      <div class="card card--notice" id="mirror-need-key" hidden>
+        <p data-i18n="mirror.needKey"></p>
+        <a class="button button--primary" href="#settings" data-i18n="mirror.goSettings"></a>
+      </div>
+
+      <div class="card mirror-card">
+        <div class="mirror-frame" aria-hidden="true">
+          <svg viewBox="0 0 64 64" class="mirror-frame__icon"><use href="#icon-camera"/></svg>
+        </div>
+        <button type="button" class="button button--primary button--large" id="capture-button" disabled data-i18n="mirror.capture"></button>
+        <p class="hint" data-i18n="mirror.soon"></p>
+      </div>
+    </section>
+
+    <!-- ========== Screen: Review ========== -->
+    <section id="screen-review" class="screen" data-screen="review" aria-labelledby="review-title" hidden>
+      <h2 id="review-title" class="screen__title" data-i18n="review.title"></h2>
+      <div class="card empty-state">
+        <svg viewBox="0 0 64 64" class="empty-state__icon" aria-hidden="true"><use href="#icon-review"/></svg>
+        <p data-i18n="review.empty"></p>
+      </div>
+    </section>
+
+    <!-- ========== Screen: Progress ========== -->
+    <section id="screen-progress" class="screen" data-screen="progress" aria-labelledby="progress-title" hidden>
+      <h2 id="progress-title" class="screen__title" data-i18n="progress.title"></h2>
+      <div class="card empty-state">
+        <svg viewBox="0 0 64 64" class="empty-state__icon" aria-hidden="true"><use href="#icon-progress"/></svg>
+        <p data-i18n="progress.empty"></p>
+      </div>
+    </section>
+
+    <!-- ========== Screen: Settings ========== -->
+    <section id="screen-settings" class="screen" data-screen="settings" aria-labelledby="settings-title" hidden>
+      <h2 id="settings-title" class="screen__title" data-i18n="settings.title"></h2>
+
+      <!-- API key -->
+      <div class="card">
+        <h3 class="card__title"><label for="api-key" data-i18n="settings.keyLabel"></label></h3>
+        <p class="hint" id="api-key-help" data-i18n="settings.keyHelp"></p>
+        <div class="key-row">
+          <!-- type=password hides the key on screen; autocomplete=off stops iOS from saving it as a password. -->
+          <input id="api-key" class="input input--ltr" type="password" inputmode="text"
+                 autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                 aria-describedby="api-key-help" dir="ltr" data-i18n-placeholder="settings.keyPlaceholder">
+          <button type="button" class="button button--ghost" id="toggle-key" aria-pressed="false" data-i18n="settings.show"></button>
+        </div>
+        <div class="button-row">
+          <button type="button" class="button button--primary" id="save-key" data-i18n="settings.save"></button>
+          <button type="button" class="button" id="test-key" data-i18n="settings.test"></button>
+          <button type="button" class="button button--danger" id="delete-key" data-i18n="settings.delete"></button>
+        </div>
+        <p class="status" id="key-status" role="status" aria-live="polite"></p>
+        <p class="hint">
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" data-i18n="settings.getKey"></a>
+        </p>
+      </div>
+
+      <!-- Portuguese level -->
+      <div class="card">
+        <fieldset class="choice-group">
+          <legend class="card__title" data-i18n="settings.levelLabel"></legend>
+          <label class="choice"><input type="radio" name="level" value="A1"><span data-i18n="level.A1"></span></label>
+          <label class="choice"><input type="radio" name="level" value="A2"><span data-i18n="level.A2"></span></label>
+          <label class="choice"><input type="radio" name="level" value="B1"><span data-i18n="level.B1"></span></label>
+        </fieldset>
+      </div>
+
+      <!-- Interface language -->
+      <div class="card">
+        <fieldset class="choice-group">
+          <legend class="card__title" data-i18n="settings.langLabel"></legend>
+          <label class="choice"><input type="radio" name="uiLang" value="fa"><span lang="fa" dir="rtl">فارسی</span></label>
+          <label class="choice"><input type="radio" name="uiLang" value="pt"><span lang="pt-BR" dir="ltr">Português</span></label>
+        </fieldset>
+        <p class="hint" data-i18n="settings.langHelp"></p>
+      </div>
+
+      <!-- Theme -->
+      <div class="card">
+        <fieldset class="choice-group">
+          <legend class="card__title" data-i18n="settings.themeLabel"></legend>
+          <label class="choice"><input type="radio" name="theme" value="auto"><span data-i18n="theme.auto"></span></label>
+          <label class="choice"><input type="radio" name="theme" value="light"><span data-i18n="theme.light"></span></label>
+          <label class="choice"><input type="radio" name="theme" value="dark"><span data-i18n="theme.dark"></span></label>
+        </fieldset>
+      </div>
+
+      <!-- Privacy -->
+      <div class="card">
+        <h3 class="card__title" data-i18n="privacy.title"></h3>
+        <ul class="privacy-list">
+          <li data-i18n="privacy.photos"></li>
+          <li data-i18n="privacy.progress"></li>
+          <li data-i18n="privacy.key"></li>
+          <li class="privacy-list__warn" data-i18n="privacy.freeTier"></li>
+        </ul>
+      </div>
+
+      <p class="version" id="app-version"></p>
+    </section>
+  </main>
+
+  <!-- Bottom tab bar: the main navigation, easy to reach with the thumb. -->
+  <nav class="tabbar" aria-label="Main">
+    <a class="tabbar__item" href="#mirror" data-tab="mirror">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#icon-camera"/></svg>
+      <span data-i18n="nav.mirror"></span>
+    </a>
+    <a class="tabbar__item" href="#review" data-tab="review">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#icon-review"/></svg>
+      <span data-i18n="nav.review"></span>
+    </a>
+    <a class="tabbar__item" href="#progress" data-tab="progress">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#icon-progress"/></svg>
+      <span data-i18n="nav.progress"></span>
+    </a>
+    <a class="tabbar__item" href="#settings" data-tab="settings">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#icon-settings"/></svg>
+      <span data-i18n="nav.settings"></span>
+    </a>
+  </nav>
+
+  <!-- First-run welcome dialog (explains the app and privacy once). -->
+  <dialog id="welcome" class="welcome" aria-labelledby="welcome-title">
+    <img src="icons/icon.svg" alt="" width="56" height="56" class="welcome__logo">
+    <!-- autofocus on the title: the dialog opens at the top, and screen readers read the title first. -->
+    <h2 id="welcome-title" tabindex="-1" autofocus data-i18n="welcome.title"></h2>
+    <p data-i18n="welcome.body"></p>
+    <h3 data-i18n="privacy.title"></h3>
+    <p data-i18n="welcome.privacy"></p>
+    <p class="privacy-list__warn" data-i18n="privacy.freeTier"></p>
+    <button type="button" class="button button--primary button--large" id="welcome-start" data-i18n="welcome.start"></button>
+  </dialog>
+
+  <!-- Icon library: each <symbol> is drawn once and reused with <use href="#...">. -->
+  <svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="icon-camera" viewBox="0 0 64 64">
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" d="M10 20h10l5-7h14l5 7h10v31H10z"/>
+      <circle cx="32" cy="35" r="10" fill="none" stroke="currentColor" stroke-width="4"/>
+    </symbol>
+    <symbol id="icon-review" viewBox="0 0 64 64">
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M50 32a18 18 0 1 1-6-13.4"/>
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="M46 10v9h-9"/>
+    </symbol>
+    <symbol id="icon-progress" viewBox="0 0 64 64">
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M14 52V36M28 52V24M42 52V30M56 52V14"/>
+    </symbol>
+    <symbol id="icon-settings" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="8" fill="none" stroke="currentColor" stroke-width="4"/>
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M32 8v8M32 48v8M8 32h8M48 32h8M15 15l6 6M43 43l6 6M15 49l6-6M43 21l6-6"/>
+    </symbol>
+  </svg>
+</body>
+</html>

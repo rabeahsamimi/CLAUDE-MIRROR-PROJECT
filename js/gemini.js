@@ -246,23 +246,17 @@ export function cleanDescription(raw) {
   return result;
 }
 
-// Sends the photo to Gemini and returns a clean description object.
-// image = { base64, mimeType }  (base64 = the photo as text, without "data:..." prefix)
-export async function describeImage(apiKey, model, image, level) {
+// Sends one request and returns the parsed JSON answer (shared by every AI feature).
+// parts = what we send (text, image, audio); schema = the shape of the answer we want.
+export async function generateJson(apiKey, model, { system, parts, schema, temperature = 0.4, maxOutputTokens = 2048 }) {
   const body = {
-    systemInstruction: { parts: [{ text: tutorInstruction(level) }] },
-    contents: [{
-      role: 'user',
-      parts: [
-        { inlineData: { mimeType: image.mimeType, data: image.base64 } },
-        { text: `Describe the main object for a ${level} student. Answer only with the JSON.` },
-      ],
-    }],
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts }],
     generationConfig: {
-      temperature: 0.4,            // lower = more careful and consistent
-      maxOutputTokens: 2048,
+      temperature,                 // lower = more careful and consistent
+      maxOutputTokens,
       responseMimeType: 'application/json',
-      responseSchema: DESCRIPTION_SCHEMA,
+      responseSchema: schema,
     },
   };
   const answer = await request(`models/${encodeURIComponent(model)}:generateContent`, apiKey, {
@@ -270,12 +264,126 @@ export async function describeImage(apiKey, model, image, level) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  let parsed;
   try {
-    parsed = JSON.parse(extractText(answer));
+    return JSON.parse(extractText(answer));
   } catch (error) {
     if (error instanceof GeminiError) throw error;
     throw new GeminiError('badresponse', 'invalid JSON');
   }
+}
+
+// Sends the photo to Gemini and returns a clean description object.
+// image = { base64, mimeType }  (base64 = the photo as text, without "data:..." prefix)
+export async function describeImage(apiKey, model, image, level) {
+  const parsed = await generateJson(apiKey, model, {
+    system: tutorInstruction(level),
+    schema: DESCRIPTION_SCHEMA,
+    parts: [
+      { inlineData: { mimeType: image.mimeType, data: image.base64 } },
+      { text: `Describe the main object for a ${level} student. Answer only with the JSON.` },
+    ],
+  });
   return cleanDescription(parsed);
+}
+
+// ---------------------------------------------------------------------------
+// Retries + fallback, shared by all AI features
+// ---------------------------------------------------------------------------
+
+// Runs task(model). If Google is busy, retries; if the model is gone (404),
+// picks a new one; if still busy or out of quota, tries up to 2 other models.
+//   ensureModel(force) -> the model to use (force = choose again)
+//   onStatus('busy' | 'other') -> lets the screen say what is happening
+export async function runWithFallback({ apiKey, ensureModel, task, onStatus }) {
+  const run = (model) => withRetry(() => task(model), { onRetry: () => onStatus?.('busy') });
+  let model = await ensureModel(false);
+  try {
+    return await run(model);
+  } catch (error) {
+    if (!(error instanceof GeminiError)) throw error;
+    if (error.reason === 'notfound') {
+      model = await ensureModel(true);
+      return run(model);
+    }
+    if (!['busy', 'quota'].includes(error.reason)) throw error;
+    // Free quotas are per model, so another model may still answer.
+    const others = fallbackModels(await listModels(apiKey), model).slice(0, 2);
+    for (const other of others) {
+      onStatus?.('other');
+      try {
+        return await task(other);
+      } catch (otherError) {
+        const tryNext = otherError instanceof GeminiError && ['busy', 'quota', 'notfound'].includes(otherError.reason);
+        if (!tryNext) throw otherError;
+      }
+    }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4: pronunciation check
+// ---------------------------------------------------------------------------
+
+function pronunciationInstruction() {
+  return [
+    'You are a kind Brazilian Portuguese pronunciation coach for a Persian-speaking adult beginner who lives in Porto Alegre.',
+    'You receive a TARGET text and a short audio recording of the student trying to say it.',
+    'Steps:',
+    '1. "heard_pt": transcribe EXACTLY what the student said, in Portuguese spelling. Do NOT correct it: if they said a wrong or unclear word, write what you actually heard.',
+    '2. "verdict": "good" = a native speaker would understand easily (an accent is fine); "close" = understandable, but one or two sounds are clearly off; "retry" = hard to understand, or words are missing.',
+    '3. "feedback_fa": one or two short, encouraging sentences in Persian.',
+    '4. "tips": up to 3 words that need work. For each, explain in Persian HOW to make the Brazilian sound, comparing with Persian sounds when helpful (for example: nasal "ão"; final "e" often sounds like "i"; "ti"/"di" like Persian "چی"/"جی"; initial "r" and "rr" like a soft Persian "ه"/"خ"; "lh" and "nh").',
+    'Accept all standard Brazilian pronunciations, including the gaúcho accent of Porto Alegre. Never criticize the student\'s accent itself, only sounds that change meaning or clarity.',
+    'If the audio has no speech, or speech in another language, set "no_speech" to true and leave the text fields empty.',
+  ].join('\n');
+}
+
+const PRONUNCIATION_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    no_speech: { type: 'BOOLEAN' },
+    heard_pt: { type: 'STRING' },
+    verdict: { type: 'STRING', enum: ['good', 'close', 'retry'] },
+    feedback_fa: { type: 'STRING' },
+    tips: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: { word: { type: 'STRING' }, tip_fa: { type: 'STRING' } },
+        required: ['word', 'tip_fa'],
+      },
+    },
+  },
+  required: ['no_speech', 'heard_pt', 'verdict', 'feedback_fa', 'tips'],
+};
+
+export function cleanPronunciation(raw) {
+  const verdict = ['good', 'close', 'retry'].includes(raw?.verdict) ? raw.verdict : 'retry';
+  return {
+    noSpeech: raw?.no_speech === true,
+    heardPt: cleanText(raw?.heard_pt, 400),
+    verdict,
+    feedbackFa: cleanText(raw?.feedback_fa, 500),
+    tips: (Array.isArray(raw?.tips) ? raw.tips : [])
+      .map((tip) => ({ word: cleanText(tip?.word, 60), tipFa: cleanText(tip?.tip_fa, 300) }))
+      .filter((tip) => tip.word && tip.tipFa)
+      .slice(0, 3),
+  };
+}
+
+// audio = { base64, mimeType } (we send WAV, a format every Gemini model accepts)
+export async function checkPronunciation(apiKey, model, target, audio) {
+  const parsed = await generateJson(apiKey, model, {
+    system: pronunciationInstruction(),
+    schema: PRONUNCIATION_SCHEMA,
+    temperature: 0.2,
+    maxOutputTokens: 1024,
+    parts: [
+      { text: `TARGET: "${target}"` },
+      { inlineData: { mimeType: audio.mimeType, data: audio.base64 } },
+      { text: 'Check the recording against the TARGET. Answer only with the JSON.' },
+    ],
+  });
+  return cleanPronunciation(parsed);
 }

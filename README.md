@@ -2,7 +2,7 @@
 
 Learn Brazilian Portuguese with the real world as the classroom. Point your phone camera at an object; the app identifies it with AI, describes it in Portuguese at your level (A1–B1), asks you questions, corrects your answers gently (with explanations in Persian), and remembers your weak points for review.
 
-**Status:** work in progress. Stage 3 of 8 is done: photo capture, on-device image resizing, and a level-adapted Portuguese description with vocabulary via Gemini structured output. See [PLAN.md](PLAN.md).
+**Status:** work in progress. Stage 4 of 8 is done: photo capture and a level-adapted Portuguese description (Gemini structured output), Brazilian text-to-speech, and pronunciation practice (on-device WAV encoding + AI feedback). See [PLAN.md](PLAN.md).
 
 ## Design goals
 - Runs in Safari on iPhone as an installable PWA: no App Store, no native build.
@@ -20,6 +20,10 @@ js/settings.js         settings persisted in localStorage
 js/gemini.js           Gemini API client (key check, model selection, photo description)
 js/image.js            shrinks photos on the device before upload
 js/mirror.js           Mirror screen: photo -> AI -> description
+js/ai.js               shared AI helper: model choice, retries, error messages
+js/speech.js           text-to-speech with the best pt-BR voice
+js/recorder.js         microphone recording, WAV encoding, silence check
+js/practice.js         pronunciation practice UI and word comparison
 manifest.webmanifest   PWA manifest
 icons/                 app icons (icon.svg is the source)
 tests/run-tests.cjs    end-to-end tests (Playwright, iPhone viewport, mocked API)

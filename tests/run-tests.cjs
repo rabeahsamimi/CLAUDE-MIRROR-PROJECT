@@ -85,7 +85,10 @@ async function shot(page, name) {
 // ---------- 3. The tests ----------
 (async () => {
   const server = await startServer();
-  const browser = await chromium.launch();
+  // Fake microphone (a beeping sound) that is allowed automatically, for the voice tests.
+  const browser = await chromium.launch({
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+  });
   console.log('Espelho IA — tests\n');
 
   // Shared page for the main flow.
@@ -583,6 +586,213 @@ async function shot(page, name) {
     const overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(overflow <= 0, `overflows by ${overflow}px`);
     await shot(p, '12-result-pt-dark');
+    assert.deepEqual(p.errors, []);
+    await ctx.close();
+  });
+
+
+  // ======================= Stage 4: listen + pronunciation =======================
+  console.log('\nStage 4 — listen and pronunciation');
+
+  // A pretend iPhone speech engine: records what the app asks it to say.
+  const FAKE_SPEECH = () => {
+    window.__spoken = [];
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    const voices = [
+      { name: 'Joana', lang: 'pt-PT' },
+      { name: 'Luciana', lang: 'pt-BR' },
+      { name: 'Luciana (Enhanced)', lang: 'pt-BR' },
+      { name: 'Samantha', lang: 'en-US' },
+    ];
+    Object.defineProperty(window, 'speechSynthesis', { value: {
+      getVoices: () => voices,
+      speak(u) { window.__spoken.push({ text: u.text, lang: u.lang, rate: u.rate, voice: u.voice?.name }); setTimeout(() => u.onend?.(), 30); },
+      cancel() {},
+      addEventListener() {},
+    } });
+  };
+  const PRONUNCIATION_OK = {
+    no_speech: false, heard_pt: 'a caneca', verdict: 'good',
+    feedback_fa: 'خیلی خوب بود! واضح و قابل فهم گفتی.',
+    tips: [{ word: 'caneca', tip_fa: 'صدای «e» آخر را کوتاه و نزدیک به «ای» بگو.' }],
+  };
+  // Answers like Gemini: a description for photos, a pronunciation check for audio.
+  function smartGemini(pronunciation = PRONUNCIATION_OK, log = []) {
+    return (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      const parts = body.contents?.[0]?.parts || [];
+      const audio = parts.find((part) => part.inlineData?.mimeType?.startsWith('audio/'));
+      log.push(body);
+      return json(route, 200, geminiAnswer(audio ? pronunciation : GOOD_DESCRIPTION));
+    };
+  }
+  async function resultPage(pronunciation, log, extraInit) {
+    const { ctx, p } = await mirrorPage();
+    await p.addInitScript(FAKE_SPEECH);
+    if (extraInit) await p.addInitScript(extraInit);
+    await p.reload();
+    await p.waitForSelector('body.is-ready');
+    await p.route('https://generativelanguage.googleapis.com/**', smartGemini(pronunciation, log));
+    await p.setInputFiles('#camera-input', PHOTO);
+    await p.locator('#mirror-result').waitFor({ state: 'visible' });
+    return { ctx, p };
+  }
+  const spoken = (p) => p.evaluate(() => window.__spoken);
+
+  await test('🔊 buttons read Portuguese with the best Brazilian voice (normal and slow)', async () => {
+    const { ctx, p } = await resultPage();
+    await p.click('#listen-object');
+    await p.click('#listen-description-slow');
+    await p.locator('.vocab__item .icon-button').nth(1).click();
+    const said = await spoken(p);
+    assert.equal(said[0].text, 'a caneca');
+    assert.equal(said[0].lang, 'pt-BR');
+    assert.equal(said[0].voice, 'Luciana (Enhanced)', 'Enhanced pt-BR voice preferred; never pt-PT');
+    assert.equal(said[0].rate, 0.95);
+    assert.match(said[1].text, /caneca azul/);
+    assert.equal(said[1].rate, 0.7);
+    assert.equal(said[2].text, 'a mesa');
+    assert.deepEqual(p.errors, []);
+    await ctx.close();
+  });
+
+  await test('practice list: key words first, then sentences, with next/previous', async () => {
+    const { ctx, p } = await resultPage();
+    assert.equal(await p.textContent('#practice-target'), 'a caneca');
+    assert.equal(await p.textContent('#practice-counter'), '1 از 7');
+    assert.equal(await p.isDisabled('#practice-prev'), true);
+    await p.click('#practice-next');
+    assert.equal(await p.textContent('#practice-target'), 'a mesa');
+    for (let i = 0; i < 5; i += 1) await p.click('#practice-next');
+    assert.equal(await p.textContent('#practice-target'), 'Eu tomo café na caneca.');
+    assert.equal(await p.isDisabled('#practice-next'), true);
+    await p.click('#practice-listen');
+    assert.equal((await spoken(p)).at(-1).text, 'Eu tomo café na caneca.');
+    await ctx.close();
+  });
+
+  await test('recording is sent as WAV with the target, and feedback is shown', async () => {
+    const log = [];
+    const { ctx, p } = await resultPage(PRONUNCIATION_OK, log);
+    await p.click('#practice-record');
+    await p.waitForFunction(() => document.querySelector('#practice-record').getAttribute('aria-pressed') === 'true');
+    await p.waitForTimeout(1500);
+    await p.click('#practice-record');
+    await p.locator('#practice-result').waitFor({ state: 'visible', timeout: 15000 });
+
+    const request = log.find((body) => body.contents[0].parts.some((part) => part.inlineData?.mimeType === 'audio/wav'));
+    assert.ok(request, 'an audio/wav request must be sent');
+    const parts = request.contents[0].parts;
+    const audio = parts.find((part) => part.inlineData).inlineData;
+    assert.ok(audio.data.startsWith('UklGR'), 'must be a WAV (RIFF) file');
+    const bytes = Buffer.from(audio.data, 'base64');
+    assert.equal(bytes.readUInt32LE(24), 16000, 'sample rate 16 kHz');
+    assert.equal(bytes.readUInt16LE(22), 1, 'mono');
+    assert.ok(parts.some((part) => part.text === 'TARGET: "a caneca"'));
+    assert.match(request.systemInstruction.parts[0].text, /gaúcho/);
+
+    assert.equal(await p.getAttribute('#practice-verdict', 'data-kind'), 'good');
+    assert.equal(await p.textContent('#practice-heard'), 'a caneca');
+    assert.equal(await p.locator('#practice-words .word--ok').count(), 2);
+    assert.equal(await p.locator('#practice-tips li').count(), 1);
+    assert.match(await p.getAttribute('#practice-audio', 'src'), /^blob:/);
+    assert.equal(await p.getAttribute('#practice-record', 'aria-pressed'), 'false');
+    await p.locator('#practice').scrollIntoViewIfNeeded();
+    await shot(p, '14-practice-good');
+    assert.deepEqual(p.errors, []);
+    await ctx.close();
+  });
+
+  await test('words that were not heard are marked (orange)', async () => {
+    const { ctx, p } = await resultPage({ ...PRONUNCIATION_OK, heard_pt: 'a canela', verdict: 'close' });
+    await p.click('#practice-record');
+    await p.waitForTimeout(1200);
+    await p.click('#practice-record');
+    await p.locator('#practice-result').waitFor({ state: 'visible', timeout: 15000 });
+    assert.equal(await p.locator('#practice-words .word--miss').count(), 1);
+    assert.equal(await p.textContent('#practice-words .word--miss'), 'caneca');
+    assert.match(await p.textContent('#practice-verdict'), /چند صدا/);
+    await ctx.close();
+  });
+
+  await test('the AI hears no speech -> friendly message, no feedback box', async () => {
+    const { ctx, p } = await resultPage({ no_speech: true, heard_pt: '', verdict: 'retry', feedback_fa: '', tips: [] });
+    await p.click('#practice-record');
+    await p.waitForTimeout(1200);
+    await p.click('#practice-record');
+    await p.waitForFunction(() => /صدایی نشنیدم/.test(document.querySelector('#practice-status').textContent), null, { timeout: 15000 });
+    assert.equal(await p.isVisible('#practice-result'), false);
+    await ctx.close();
+  });
+
+  await test('microphone permission denied -> clear instructions, nothing sent', async () => {
+    const log = [];
+    const deny = () => {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError'));
+    };
+    const { ctx, p } = await resultPage(PRONUNCIATION_OK, log, deny);
+    const before = log.length;
+    await p.click('#practice-record');
+    await p.waitForFunction(() => /Microphone/.test(document.querySelector('#practice-status').textContent));
+    assert.equal(log.length, before);
+    assert.equal(await p.getAttribute('#practice-record', 'aria-pressed'), 'false');
+    await ctx.close();
+  });
+
+  await test('word comparison ignores accents, case and punctuation', async () => {
+    const { ctx, p } = await mirrorPage();
+    const result = await p.evaluate(async () => {
+      const { compareWords, splitSentences } = await import('./js/practice.js');
+      return {
+        same: compareWords('Ela está em cima da mesa.', 'ela esta em cima da mesa'),
+        missing: compareWords('o café quente', 'o cafe'),
+        sentences: splitSentences('Isto é um garfo. Ele é de metal! Você usa?'),
+      };
+    });
+    assert.ok(result.same.every((w) => w.ok));
+    assert.deepEqual(result.missing.map((w) => w.ok), [true, true, false]);
+    assert.equal(result.sentences.length, 3);
+    await ctx.close();
+  });
+
+  await test('Settings shows the Portuguese voice and can test it', async () => {
+    const { ctx, p } = await mirrorPage();
+    await p.addInitScript(FAKE_SPEECH);
+    await p.goto(BASE + '#settings');
+    await p.reload();
+    await p.waitForFunction(() => /Luciana \(Enhanced\)/.test(document.querySelector('#voice-status').textContent));
+    await p.click('#voice-test');
+    assert.match((await spoken(p))[0].text, /Tudo bem/);
+    await ctx.close();
+  });
+
+  await test('leaving the result (other tab / new photo) stops recording and turns the mic off', async () => {
+    const { ctx, p } = await resultPage();
+    // Count live microphone tracks.
+    await p.evaluate(() => {
+      window.__tracks = [];
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (c) => { const s = await original(c); window.__tracks.push(...s.getTracks()); return s; };
+    });
+    const liveTracks = () => p.evaluate(() => window.__tracks.filter((track) => track.readyState === 'live').length);
+
+    // a) leave while recording
+    await p.click('#practice-record');
+    await p.waitForFunction(() => document.querySelector('#practice-record').getAttribute('aria-pressed') === 'true');
+    assert.equal(await liveTracks(), 1);
+    await p.click('.tabbar__item[data-tab="settings"]');
+    await p.locator('#screen-settings').waitFor({ state: 'visible' });
+    assert.equal(await liveTracks(), 0, 'mic must be off after leaving');
+    await p.click('.tabbar__item[data-tab="mirror"]');
+    await p.locator('#screen-mirror').waitFor({ state: 'visible' });
+    assert.equal(await p.getAttribute('#practice-record', 'aria-pressed'), 'false');
+
+    // b) leave while the mic is still starting (the race condition)
+    await p.click('#practice-record');
+    await p.click('#mirror-new');
+    await p.waitForTimeout(800);
+    assert.equal(await liveTracks(), 0, 'a slow-starting mic must be turned off');
+    assert.equal(await p.isVisible('#mirror-start'), true);
     assert.deepEqual(p.errors, []);
     await ctx.close();
   });

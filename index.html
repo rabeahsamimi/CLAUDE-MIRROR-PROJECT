@@ -100,10 +100,25 @@
       <article class="card result" id="mirror-result" hidden aria-labelledby="result-object">
         <img class="mirror-photo" id="result-photo" alt="">
         <p class="result__level" id="result-level"></p>
-        <h3 class="result__object" id="result-object" lang="pt-BR" dir="ltr"></h3>
+        <div class="result__object-row">
+          <h3 class="result__object" id="result-object" lang="pt-BR" dir="ltr"></h3>
+          <button type="button" class="icon-button" id="listen-object" data-i18n-aria="speak.listen">
+            <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#icon-speaker"/></svg>
+          </button>
+        </div>
         <p class="result__object-fa" id="result-object-fa" lang="fa" dir="rtl"></p>
 
         <p class="result__description" id="result-description" lang="pt-BR" dir="ltr"></p>
+        <div class="button-row button-row--compact">
+          <button type="button" class="button button--small" id="listen-description">
+            <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-speaker"/></svg>
+            <span data-i18n="speak.listen"></span>
+          </button>
+          <button type="button" class="button button--small" id="listen-description-slow">
+            <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-speaker"/></svg>
+            <span data-i18n="speak.slow"></span>
+          </button>
+        </div>
         <details class="result__translation">
           <summary data-i18n="mirror.translation"></summary>
           <p id="result-description-fa" lang="fa" dir="rtl"></p>
@@ -116,6 +131,45 @@
           <strong data-i18n="mirror.note"></strong>
           <p id="result-note" lang="fa" dir="rtl"></p>
         </div>
+
+        <!-- Pronunciation practice (js/practice.js) -->
+        <section class="practice" id="practice" aria-labelledby="practice-title">
+          <h4 class="result__subtitle" id="practice-title" data-i18n="practice.title"></h4>
+          <p class="hint" data-i18n="practice.hint"></p>
+          <p class="practice__target" id="practice-target" lang="pt-BR" dir="ltr"></p>
+          <div class="practice__nav">
+            <button type="button" class="button button--small button--ghost" id="practice-prev" data-i18n="practice.prev"></button>
+            <span class="practice__counter" id="practice-counter"></span>
+            <button type="button" class="button button--small button--ghost" id="practice-next" data-i18n="practice.next"></button>
+          </div>
+          <div class="button-row button-row--center">
+            <button type="button" class="button button--small" id="practice-listen">
+              <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-speaker"/></svg>
+              <span data-i18n="speak.listen"></span>
+            </button>
+            <button type="button" class="button button--small" id="practice-slow">
+              <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-speaker"/></svg>
+              <span data-i18n="speak.slow"></span>
+            </button>
+          </div>
+          <button type="button" class="button button--record button--large" id="practice-record" aria-pressed="false">
+            <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-mic"/></svg>
+            <span id="practice-record-label" data-i18n="practice.record"></span>
+          </button>
+          <p class="status" id="practice-status" role="status" aria-live="polite"></p>
+
+          <div class="practice__result" id="practice-result" hidden>
+            <p class="verdict" id="practice-verdict"></p>
+            <p class="practice__words" id="practice-words" lang="pt-BR" dir="ltr"></p>
+            <p class="hint hint--small" data-i18n="practice.legend"></p>
+            <p class="practice__heard"><span data-i18n="practice.heard"></span> <bdi id="practice-heard" lang="pt-BR" dir="ltr"></bdi></p>
+            <p id="practice-feedback" lang="fa" dir="rtl"></p>
+            <ul class="practice__tips" id="practice-tips" lang="fa" dir="rtl"></ul>
+            <p class="practice__playback"><span data-i18n="practice.playback"></span></p>
+            <audio id="practice-audio" controls preload="none"></audio>
+            <p class="hint hint--small" data-i18n="practice.approx"></p>
+          </div>
+        </section>
 
         <button type="button" class="button button--primary button--large" id="mirror-new" data-i18n="mirror.newPhoto"></button>
       </article>
@@ -163,6 +217,26 @@
         <p class="hint">
           <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" data-i18n="settings.getKey"></a>
         </p>
+      </div>
+
+      <!-- Portuguese voice -->
+      <div class="card">
+        <h3 class="card__title" data-i18n="voice.title"></h3>
+        <p class="status" id="voice-status"></p>
+        <button type="button" class="button" id="voice-test">
+          <svg viewBox="0 0 64 64" aria-hidden="true" class="button__icon"><use href="#icon-speaker"/></svg>
+          <span data-i18n="voice.test"></span>
+        </button>
+        <details class="howto">
+          <summary data-i18n="voice.howTitle"></summary>
+          <ol>
+            <li data-i18n="voice.step1"></li>
+            <li data-i18n="voice.step2"></li>
+            <li data-i18n="voice.step3"></li>
+            <li data-i18n="voice.step4"></li>
+            <li data-i18n="voice.step5"></li>
+          </ol>
+        </details>
       </div>
 
       <!-- Portuguese level -->
@@ -254,6 +328,14 @@
     </symbol>
     <symbol id="icon-progress" viewBox="0 0 64 64">
       <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M14 52V36M28 52V24M42 52V30M56 52V14"/>
+    </symbol>
+    <symbol id="icon-speaker" viewBox="0 0 64 64">
+      <path fill="currentColor" d="M10 24h10l14-11v38L20 40H10z"/>
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M42 24a11 11 0 0 1 0 16M48 17a20 20 0 0 1 0 30"/>
+    </symbol>
+    <symbol id="icon-mic" viewBox="0 0 64 64">
+      <rect x="23" y="8" width="18" height="32" rx="9" fill="currentColor"/>
+      <path fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" d="M15 30a17 17 0 0 0 34 0M32 47v9M24 56h16"/>
     </symbol>
     <symbol id="icon-settings" viewBox="0 0 64 64">
       <circle cx="32" cy="32" r="8" fill="none" stroke="currentColor" stroke-width="4"/>

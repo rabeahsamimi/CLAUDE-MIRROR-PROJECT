@@ -4,19 +4,42 @@
 //   start   -> buttons to take or choose a photo
 //   loading -> the photo + "Looking…"
 //   error   -> a clear message + "Try again"
-//   result  -> object name, description, translation, key words, tip
+//   result  -> object name, description, translation, key words, tip,
+//              listen buttons (🔊) and pronunciation practice (🎤)
 
 import { t } from './i18n.js';
 import { prepareImage } from './image.js';
-import { describeImage, checkKey, listModels, fallbackModels, withRetry, GeminiError } from './gemini.js';
+import { describeImage } from './gemini.js';
+import { errorMessageKey } from './ai.js';
+import { speak, stopSpeaking } from './speech.js';
+import { initPractice } from './practice.js';
 
 const $ = (selector) => document.querySelector(selector);
 
 let currentImage = null;  // the prepared photo, kept in memory only (for "Try again")
 let busy = false;
 
-// getSettings() returns the current settings; save(changes) stores changes.
-export function initMirror({ getSettings, save }) {
+// Creates a small round 🔊 button that reads `text` aloud.
+function listenButton(text, label) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'icon-button';
+  button.setAttribute('aria-label', label);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 64 64');
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', '#icon-speaker');
+  svg.append(use);
+  button.append(svg);
+  button.addEventListener('click', () => speak(text, { button }));
+  return button;
+}
+
+// getSettings() returns the current settings; ai = the shared AI helper (js/ai.js).
+export function initMirror({ getSettings, ai }) {
+  const practice = initPractice({ ai });
+  let shownResult = null;
   const states = {
     start: $('#mirror-start'),
     loading: $('#mirror-loading'),
@@ -31,6 +54,9 @@ export function initMirror({ getSettings, save }) {
 
   // Forget the current photo and free its memory.
   function resetPhoto() {
+    practice.reset();
+    stopSpeaking();
+    shownResult = null;
     if (currentImage) URL.revokeObjectURL(currentImage.previewUrl);
     currentImage = null;
     $('#loading-photo').removeAttribute('src');
@@ -71,23 +97,16 @@ export function initMirror({ getSettings, save }) {
       fa.lang = 'fa';
       fa.dir = 'rtl';
       fa.textContent = word.fa;
-      item.append(pt, fa);
+      item.append(listenButton(word.pt, t('speak.listen')), pt, fa);
       list.append(item);
     }
     $('.result__subtitle').hidden = result.vocabulary.length === 0;
 
     $('#result-note').textContent = result.noteFa;
     $('#result-note-box').hidden = !result.noteFa;
+    shownResult = result;
+    practice.setTargets(result);
     show('result');
-  }
-
-  // Makes sure we know which model to use (chosen once, then remembered).
-  async function ensureModel(apiKey, forceRefresh = false) {
-    const settings = getSettings();
-    if (settings.model && !forceRefresh) return settings.model;
-    const model = await checkKey(apiKey);
-    save({ model });
-    return model;
   }
 
   async function analyze() {
@@ -101,45 +120,17 @@ export function initMirror({ getSettings, save }) {
     $('#loading-photo').src = currentImage.previewUrl;
     setLoadingText('mirror.loading');
     show('loading');
-    const level = settings.level;
-    // One model, with automatic retries if Google is busy.
-    const run = (model) => withRetry(
-      () => describeImage(settings.apiKey, model, currentImage, level),
-      { onRetry: () => setLoadingText('mirror.busyRetrying') },
-    );
+    const { level } = settings;
     try {
-      let model = await ensureModel(settings.apiKey);
-      let result;
-      try {
-        result = await run(model);
-      } catch (error) {
-        if (!(error instanceof GeminiError)) throw error;
-        if (error.reason === 'notfound') {
-          // Google retired or renamed the model: choose a new one and try once more.
-          model = await ensureModel(settings.apiKey, true);
-          result = await run(model);
-        } else if (['busy', 'quota'].includes(error.reason)) {
-          // Still busy after retries, or this model's free quota is used up (quotas are
-          // per model): try up to 2 other free models, just for this photo.
-          result = await tryOtherModels(settings.apiKey, model, level, error);
-        } else {
-          throw error;
-        }
-      }
+      // ai.run handles retries when Google is busy and switching models if needed.
+      const result = await ai.run(
+        (apiKey, model) => describeImage(apiKey, model, currentImage, level),
+        (status) => setLoadingText(status === 'busy' ? 'mirror.busyRetrying' : 'mirror.tryingOtherModel'),
+      );
       if (!result.recognized) showError('mirror.notRecognized');
-      else showResult(result, settings.level);
+      else showResult(result, level);
     } catch (error) {
-      const messages = {
-        quota: 'mirror.errorQuota',
-        busy: 'mirror.errorBusy',
-        network: 'mirror.errorNetwork',
-        invalid: 'mirror.errorInvalid',
-        forbidden: 'mirror.errorInvalid',
-        blocked: 'mirror.errorBlocked',
-        badresponse: 'mirror.errorBadResponse',
-      };
-      const reason = error instanceof GeminiError ? error.reason : 'unknown';
-      showError(messages[reason] || 'mirror.errorUnknown', error?.message || reason);
+      showError(errorMessageKey(error), error?.message || '');
     } finally {
       busy = false;
     }
@@ -147,20 +138,6 @@ export function initMirror({ getSettings, save }) {
 
   function setLoadingText(key) {
     $('#loading-text').textContent = t(key);
-  }
-
-  async function tryOtherModels(apiKey, busyModel, level, originalError) {
-    const others = fallbackModels(await listModels(apiKey), busyModel).slice(0, 2);
-    for (const model of others) {
-      setLoadingText('mirror.tryingOtherModel');
-      try {
-        return await describeImage(apiKey, model, currentImage, level);
-      } catch (error) {
-        const tryNext = error instanceof GeminiError && ['busy', 'quota', 'notfound'].includes(error.reason);
-        if (!tryNext) throw error;
-      }
-    }
-    throw originalError;
   }
 
   async function onFileChosen(event) {
@@ -188,9 +165,17 @@ export function initMirror({ getSettings, save }) {
   $('#mirror-retry').addEventListener('click', () => { if (currentImage && !busy) analyze(); });
   $('#mirror-new').addEventListener('click', newPhoto);
   $('#mirror-error-new').addEventListener('click', newPhoto);
+  $('#listen-object').addEventListener('click', (event) => speak(shownResult?.objectPt, { button: event.currentTarget }));
+  $('#listen-description').addEventListener('click', (event) => speak(shownResult?.descriptionPt, { button: event.currentTarget }));
+  $('#listen-description-slow').addEventListener('click', (event) => speak(shownResult?.descriptionPt, { slow: true, button: event.currentTarget }));
 
   // Called whenever the Mirror screen is shown.
   return {
+    // Called when another screen is opened: stop sound and recording.
+    leave() {
+      practice.reset();
+      stopSpeaking();
+    },
     update() {
       const hasKey = Boolean(getSettings().apiKey);
       $('#mirror-need-key').hidden = hasKey;

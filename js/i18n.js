@@ -77,6 +77,42 @@ export const STRINGS = {
     'settings.testNoModel': 'کلید کار می‌کند، اما مدل مناسبی برای عکس پیدا نشد.',
     'settings.testError': 'خطای غیرمنتظره: {detail}',
 
+    'speak.listen': 'بشنو',
+    'speak.slow': 'آهسته',
+    'speak.unsupported': 'این دستگاه خواندن متن با صدا را پشتیبانی نمی‌کند.',
+
+    'voice.title': 'صدای پرتغالی',
+    'voice.found': 'صدای فعلی: {name} ✓',
+    'voice.notFound': 'صدای پرتغالیِ برزیلی روی این گوشی پیدا نشد. مراحل زیر را انجام بده.',
+    'voice.test': 'امتحان صدا',
+    'voice.sample': 'Olá! Tudo bem? Vamos aprender português juntos.',
+    'voice.howTitle': 'نصب صدای طبیعی‌تر (پیشنهادی)',
+    'voice.step1': 'برنامهٔ Settings (تنظیمات) iPhone را باز کن.',
+    'voice.step2': 'Accessibility ← Spoken Content (در بعضی نسخه‌ها Read & Speak) ← Voices',
+    'voice.step3': 'Portuguese ← Portuguese (Brazil) را انتخاب کن.',
+    'voice.step4': 'کنار Luciana (Enhanced) یا Felipe (Enhanced) دکمهٔ دانلود را بزن (حدود ۱۰۰ مگابایت؛ با Wi‑Fi).',
+    'voice.step5': 'بعد از دانلود، Espelho IA را کامل ببند و دوباره باز کن.',
+
+    'practice.title': 'تمرین تلفظ',
+    'practice.hint': 'اول گوش کن، بعد دکمهٔ میکروفون را بزن، همان را بلند بگو و دوباره دکمه را بزن.',
+    'practice.prev': 'قبلی',
+    'practice.next': 'بعدی',
+    'practice.counter': '{n} از {total}',
+    'practice.record': 'ضبط صدای من',
+    'practice.stop': 'تمام شد ({seconds})',
+    'practice.recording': 'در حال ضبط… بگو و بعد «تمام شد» را بزن.',
+    'practice.checking': 'دارم گوش می‌دهم…',
+    'practice.verdict.good': 'عالی! کاملاً قابل فهم بود ✓',
+    'practice.verdict.close': 'خوب بود؛ فقط چند صدا را بهتر کن.',
+    'practice.verdict.retry': 'یک بار دیگر امتحان کن؛ آهسته‌تر و واضح‌تر.',
+    'practice.legend': 'سبز: شنیده شد · نارنجی: شنیده نشد',
+    'practice.heard': 'شنیدم:',
+    'practice.playback': 'صدای خودت:',
+    'practice.approx': 'این بازخورد تقریبی است و جای معلم را نمی‌گیرد.',
+    'practice.noSpeech': 'صدایی نشنیدم. گوشی را نزدیک‌تر بگیر و بلندتر بگو.',
+    'practice.micDenied': 'اجازهٔ میکروفون داده نشد. در Safari روی «aA» (کنار آدرس) بزن ← Website Settings ← Microphone ← Allow. اگر برنامه را از Home Screen باز کرده‌ای: Settings iPhone ← Apps ← Safari ← Microphone ← Ask.',
+    'practice.unsupported': 'ضبط صدا در این مرورگر کار نمی‌کند. Safari را به‌روز کن.',
+
     'settings.levelLabel': 'سطح پرتغالی تو',
     'level.A1': 'A1 — مبتدی',
     'level.A2': 'A2 — پایه',
@@ -169,6 +205,42 @@ export const STRINGS = {
     'settings.testNoModel': 'A chave funciona, mas não encontrei um modelo que aceite fotos.',
     'settings.testError': 'Erro inesperado: {detail}',
 
+    'speak.listen': 'Ouvir',
+    'speak.slow': 'Devagar',
+    'speak.unsupported': 'Este aparelho não consegue ler textos em voz alta.',
+
+    'voice.title': 'Voz em português',
+    'voice.found': 'Voz atual: {name} ✓',
+    'voice.notFound': 'Não encontrei uma voz de português do Brasil neste celular. Siga os passos abaixo.',
+    'voice.test': 'Testar voz',
+    'voice.sample': 'Olá! Tudo bem? Vamos aprender português juntos.',
+    'voice.howTitle': 'Instalar uma voz mais natural (recomendado)',
+    'voice.step1': 'Abra os Ajustes do iPhone.',
+    'voice.step2': 'Acessibilidade → Conteúdo Falado (em algumas versões, Ler e Falar) → Vozes',
+    'voice.step3': 'Escolha Português → Português (Brasil).',
+    'voice.step4': 'Toque em baixar ao lado de Luciana (Aprimorada) ou Felipe (Aprimorada) (cerca de 100 MB; use Wi‑Fi).',
+    'voice.step5': 'Depois do download, feche o Espelho IA por completo e abra de novo.',
+
+    'practice.title': 'Treino de pronúncia',
+    'practice.hint': 'Primeiro ouça, depois toque no microfone, repita em voz alta e toque de novo.',
+    'practice.prev': '‹ Anterior',
+    'practice.next': 'Próximo ›',
+    'practice.counter': '{n} de {total}',
+    'practice.record': 'Gravar minha voz',
+    'practice.stop': 'Pronto ({seconds})',
+    'practice.recording': 'Gravando… fale e depois toque em «Pronto».',
+    'practice.checking': 'Ouvindo…',
+    'practice.verdict.good': 'Ótimo! Ficou bem claro ✓',
+    'practice.verdict.close': 'Bom! Só alguns sons para melhorar.',
+    'practice.verdict.retry': 'Tente mais uma vez, mais devagar e com calma.',
+    'practice.legend': 'Verde: ouvido · Laranja: não ouvido',
+    'practice.heard': 'Ouvi:',
+    'practice.playback': 'Sua gravação:',
+    'practice.approx': 'Este retorno é aproximado e não substitui um professor.',
+    'practice.noSpeech': 'Não ouvi nada. Segure o celular mais perto e fale mais alto.',
+    'practice.micDenied': 'O microfone não foi permitido. No Safari, toque em «aA» → Ajustes do Site → Microfone → Permitir. Se abriu pela Tela de Início: Ajustes do iPhone → Apps → Safari → Microfone → Perguntar.',
+    'practice.unsupported': 'A gravação de voz não funciona neste navegador. Atualize o Safari.',
+
     'settings.levelLabel': 'Seu nível de português',
     'level.A1': 'A1 — iniciante',
     'level.A2': 'A2 — básico',
@@ -213,6 +285,9 @@ export function applyLanguage(language) {
   // textContent (not innerHTML) is used on purpose: it can never run hidden code.
   document.querySelectorAll('[data-i18n]').forEach((element) => {
     element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-aria]').forEach((element) => {
+    element.setAttribute('aria-label', t(element.dataset.i18nAria));
   });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((element) => {
     element.placeholder = t(element.dataset.i18nPlaceholder);

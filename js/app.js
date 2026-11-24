@@ -7,9 +7,11 @@
 import { applyLanguage, t } from './i18n.js';
 import { loadSettings, saveSettings, isPlausibleKey } from './settings.js';
 import { checkKey, GeminiError } from './gemini.js';
+import { createAi } from './ai.js';
+import { loadVoices, portugueseVoiceName, isSpeechSupported, speak } from './speech.js';
 import { initMirror } from './mirror.js';
 
-export const APP_VERSION = '0.3.1'; // stage 3 + fix: retry and switch model when Google is busy
+export const APP_VERSION = '0.4.0'; // stage 4: listen + pronunciation practice
 
 const SCREENS = ['mirror', 'review', 'progress', 'settings'];
 let settings = loadSettings();
@@ -44,6 +46,8 @@ function showScreen(name) {
     else tab.removeAttribute('aria-current');
   });
   if (name === 'mirror') updateMirrorScreen();
+  else mirror?.leave();
+  if (name === 'settings') updateVoiceStatus();
   window.scrollTo(0, 0);
 }
 
@@ -165,6 +169,23 @@ function wireSettings() {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(settings.theme));
 }
 
+// ---------- Portuguese voice (Settings) ----------
+async function updateVoiceStatus() {
+  const status = $('#voice-status');
+  if (!isSpeechSupported()) {
+    status.textContent = t('speak.unsupported');
+    return;
+  }
+  await loadVoices();
+  const name = portugueseVoiceName();
+  status.textContent = name ? t('voice.found', { name }) : t('voice.notFound');
+  status.dataset.kind = name ? 'ok' : 'error';
+}
+
+function wireVoice() {
+  $('#voice-test').addEventListener('click', (event) => speak(t('voice.sample'), { button: event.currentTarget }));
+}
+
 // ---------- Welcome dialog (first run only) ----------
 function showWelcomeIfNeeded() {
   if (settings.onboarded) return;
@@ -184,7 +205,9 @@ function start() {
   fillSettingsForm();
   updateToggleLabel();
   wireSettings();
-  mirror = initMirror({ getSettings: () => settings, save });
+  const ai = createAi({ getSettings: () => settings, save });
+  mirror = initMirror({ getSettings: () => settings, ai });
+  wireVoice();
   window.addEventListener('hashchange', () => showScreen(currentScreen()));
   showScreen(currentScreen());
   document.body.classList.add('is-ready');
